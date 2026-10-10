@@ -1,1 +1,21 @@
+# Build output
+target/
+*.class
+
+# Secrets & local runtime keys
+server/docker/keys/*.pem
+*.pem
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.launch
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Local portable runtime (downloaded binaries, not part of the repo)
+server/local-run/
 .*/
