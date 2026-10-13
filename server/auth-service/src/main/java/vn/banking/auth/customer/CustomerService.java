@@ -45,8 +45,7 @@ public class CustomerService {
 
     @Transactional(readOnly = true)
     public Customer getById(UUID id) {
-        return repository.findById(id)
-                .orElseThrow(() -> new CustomerNotFoundException(id));
+        return repository.findById(id).orElseThrow(() -> new CustomerNotFoundException(id));
     }
 
     public static class DuplicateEmailException extends RuntimeException {

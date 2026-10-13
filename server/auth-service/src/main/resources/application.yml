@@ -1,0 +1,47 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: auth-service
+  datasource:
+    url: ${BANKING_DB_URL:jdbc:postgresql://localhost:5432/customer_db}
+    username: ${BANKING_DB_USER:customer}
+    password: ${BANKING_DB_PASSWORD:customer}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    locations: classpath:db/migration
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          public-key-location: ${BANKING_JWT_PUBLIC_KEY:file:../docker/keys/jwt-public.pem}
+
+banking:
+  jwt:
+    issuer: banking-auth
+    key-id: banking-auth-rs256
+    private-key-path: ${BANKING_JWT_PRIVATE_KEY:file:../docker/keys/jwt-private.pem}
+    public-key-path: ${BANKING_JWT_PUBLIC_KEY:file:../docker/keys/jwt-public.pem}
+    ttl: 60m
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  level:
+    vn.banking: INFO
