@@ -1,0 +1,28 @@
+<configuration>
+    <!--
+      Default: human-readable console with traceId/spanId from Micrometer Tracing.
+      Activate profile `json` (e.g. SPRING_PROFILES_ACTIVE=json) for structured
+      JSON logs on stdout, as expected by the Fluent Bit -> Elasticsearch pipeline.
+    -->
+    <springProfile name="json">
+        <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <customFields>{"service":"auth-service"}</customFields>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="JSON"/>
+        </root>
+    </springProfile>
+
+    <springProfile name="default,local,test">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>%d{HH:mm:ss.SSS} %-5level [auth,%X{traceId:-},%X{spanId:-}] %logger{36} - %msg%n</pattern>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+</configuration>

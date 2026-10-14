@@ -1,0 +1,64 @@
+package vn.banking.auth.web;
+
+import java.net.URI;
+import java.util.UUID;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+
+import jakarta.validation.Valid;
+import vn.banking.auth.customer.Customer;
+import vn.banking.auth.customer.CustomerService;
+import vn.banking.auth.security.JwtService;
+import vn.banking.auth.web.dto.CustomerResponse;
+import vn.banking.auth.web.dto.LoginRequest;
+import vn.banking.auth.web.dto.LoginResponse;
+import vn.banking.auth.web.dto.RegisterRequest;
+
+@RestController
+@RequestMapping("/auth")
+public class AuthController {
+
+    private final CustomerService customerService;
+    private final JwtService jwtService;
+
+    public AuthController(CustomerService customerService, JwtService jwtService) {
+        this.customerService = customerService;
+        this.jwtService = jwtService;
+    }
+
+    @PostMapping("/register")
+    public ResponseEntity<CustomerResponse> register(@Valid @RequestBody RegisterRequest request) {
+        Customer customer = customerService.register(request.email(), request.password(), request.fullName());
+        URI location = ServletUriComponentsBuilder.fromCurrentContextPath()
+                .path("/auth/me")
+                .build()
+                .toUri();
+        return ResponseEntity.created(location).body(CustomerResponse.from(customer));
+    }
+
+    @PostMapping("/login")
+    public LoginResponse login(@Valid @RequestBody LoginRequest request) {
+        Customer customer = customerService.authenticate(request.email(), request.password());
+        String token = jwtService.issueToken(customer);
+        return new LoginResponse(
+                token,
+                "Bearer",
+                jwtService.expiryOf(token),
+                CustomerResponse.from(customer));
+    }
+
+    @GetMapping("/me")
+    public CustomerResponse me(Authentication authentication) {
+        JwtAuthenticationToken jwtAuth = (JwtAuthenticationToken) authentication;
+        UUID customerId = UUID.fromString(jwtAuth.getToken().getSubject());
+        return CustomerResponse.from(customerService.getById(customerId));
+    }
+}
