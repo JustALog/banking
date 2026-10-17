@@ -1,0 +1,60 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: ledger-service
+  datasource:
+    url: ${BANKING_DB_URL:jdbc:postgresql://localhost:5432/ledger_db}
+    username: ${BANKING_DB_USER:ledger}
+    password: ${BANKING_DB_PASSWORD:ledger}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    locations: classpath:db/migration
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          public-key-location: ${BANKING_JWT_PUBLIC_KEY:file:../docker/keys/jwt-public.pem}
+  kafka:
+    bootstrap-servers: ${BANKING_KAFKA_BOOTSTRAP:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+    consumer:
+      group-id: ledger-service
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
+      properties:
+        isolation.level: read_committed
+    listener:
+      ack-mode: record
+      observation-enabled: true   # continue the trace from the "traceparent" header
+    template:
+      observation-enabled: true   # send the current trace as a "traceparent" header
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  level:
+    vn.banking: INFO
