@@ -1,0 +1,82 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: transfer-service
+  datasource:
+    url: ${BANKING_DB_URL:jdbc:postgresql://localhost:5432/transfer_db}
+    username: ${BANKING_DB_USER:transfer}
+    password: ${BANKING_DB_PASSWORD:transfer}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    locations: classpath:db/migration
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          public-key-location: ${BANKING_JWT_PUBLIC_KEY:file:../docker/keys/jwt-public.pem}
+  kafka:
+    bootstrap-servers: ${BANKING_KAFKA_BOOTSTRAP:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+    consumer:
+      group-id: transfer-service
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
+      properties:
+        isolation.level: read_committed
+    listener:
+      ack-mode: record
+      observation-enabled: true   # continue the trace from the "traceparent" header
+    template:
+      observation-enabled: true   # send the current trace as a "traceparent" header
+
+banking:
+  ledger:
+    base-url: ${BANKING_LEDGER_URL:http://localhost:8082}
+  partner:
+    base-url: ${BANKING_PARTNER_URL:http://localhost:9090}
+    execute-path: /partner/v1/transfers
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      partnerBank:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 20s
+        permitted-number-of-calls-in-half-open-state: 2
+  retry:
+    instances:
+      partnerBank:
+        # Retry only transient timeouts, not hard failures; saga failure handling stays in code
+        max-attempts: 1
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  level:
+    vn.banking: INFO
