@@ -1,0 +1,193 @@
+package vn.banking.transfer.saga;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import java.time.Instant;
+import java.util.Optional;
+import java.util.UUID;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import vn.banking.events.Topics;
+import vn.banking.events.TransferCompletedEvent;
+import vn.banking.events.TransferFailedEvent;
+import vn.banking.events.TransferRequestedEvent;
+import vn.banking.transfer.account.AccountValidationClient;
+import vn.banking.transfer.domain.OutboxEvent;
+import vn.banking.transfer.domain.OutboxEventRepository;
+import vn.banking.transfer.domain.Transfer;
+import vn.banking.transfer.domain.TransferRepository;
+import vn.banking.transfer.partner.PartnerBankClient;
+
+@ExtendWith(MockitoExtension.class)
+class SagaOrchestratorServiceTest {
+
+    @Mock
+    TransferRepository transfers;
+    @Mock
+    OutboxEventRepository outbox;
+    @Mock
+    AccountValidationClient accountValidation;
+    @Mock
+    PartnerBankClient partnerBank;
+
+    SagaOrchestratorService service;
+
+    UUID customerId = UUID.randomUUID();
+    UUID sourceId = UUID.randomUUID();
+    UUID destId = UUID.randomUUID();
+    String idemKey = "key-123";
+
+    @BeforeEach
+    void setUp() {
+        service = new SagaOrchestratorService(transfers, outbox, accountValidation, partnerBank);
+    }
+
+    @Test
+    void startCreatesPendingTransferAndTransferRequestedOutboxAtomically() {
+        stubAccountsValid();
+        when(transfers.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        var result = service.start(idemKey, customerId, sourceId, destId, 250_000, "VND", "Bearer t");
+
+        assertThat(result.created()).isTrue();
+        assertThat(result.transfer().getStatus()).isEqualTo(Transfer.Status.PENDING);
+
+        ArgumentCaptor<OutboxEvent> outboxCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outbox).save(outboxCaptor.capture());
+        OutboxEvent event = outboxCaptor.getValue();
+        assertThat(event.getAggregateType()).isEqualTo(Topics.TRANSFER_REQUESTED);
+        assertThat(event.getAggregateId()).isEqualTo(sourceId.toString());
+        TransferRequestedEvent payload = vn.banking.events.EventJson.read(event.getPayload(), TransferRequestedEvent.class);
+        assertThat(payload.amount()).isEqualTo(250_000);
+        assertThat(payload.transferId()).isEqualTo(result.transfer().getId());
+    }
+
+    @Test
+    void replayingSameIdempotencyKeyReturnsOriginalWithoutNewOutbox() {
+        Transfer existing = new Transfer(idemKey, customerId, sourceId, destId, 250_000, "VND");
+        when(transfers.findByIdempotencyKey(idemKey)).thenReturn(Optional.of(existing));
+
+        var result = service.start(idemKey, customerId, sourceId, destId, 250_000, "VND", "Bearer t");
+
+        assertThat(result.created()).isFalse();
+        assertThat(result.transfer()).isSameAs(existing);
+        verify(transfers, never()).save(any());
+        verify(outbox, never()).save(any());
+    }
+
+    @Test
+    void startRejectsWhenCallerDoesNotOwnSourceAccount() {
+        var otherCustomer = new AccountValidationClient.LedgerAccount(sourceId, "VN0001", UUID.randomUUID(), "VND", 100);
+        when(accountValidation.fetch(any(), anyString())).thenReturn(otherCustomer);
+
+        assertThatThrownBy(() -> service.start(idemKey, customerId, sourceId, destId, 100, "VND", "Bearer t"))
+                .isInstanceOf(SagaOrchestratorService.AccountValidationException.class);
+        verify(transfers, never()).save(any());
+        verify(outbox, never()).save(any());
+    }
+
+    @Test
+    void fraudRejectionFailsSagaWithOutboxEvent() {
+        Transfer pending = pendingTransfer();
+        when(transfers.findById(pending.getId())).thenReturn(Optional.of(pending));
+
+        service.onFraudDecided(new vn.banking.events.FraudDecidedEvent(pending.getId(),
+                sourceId, destId, 250_000, "VND", vn.banking.events.FraudDecision.REJECTED, "over limit", Instant.now()));
+
+        assertThat(pending.getStatus()).isEqualTo(Transfer.Status.FAILED);
+        assertThat(pending.getFailureReason()).isEqualTo("FRAUD_REJECTED");
+        assertOutboxTopic(Topics.TRANSFER_FAILED, TransferFailedEvent.class, "FRAUD_REJECTED");
+    }
+
+    @Test
+    void ledgerRejectionFailsSagaWithLedgerReason() {
+        Transfer pending = pendingTransfer();
+        when(transfers.findById(pending.getId())).thenReturn(Optional.of(pending));
+
+        service.onLedgerRejected(new TransferFailedEvent(pending.getId(), "INSUFFICIENT_FUNDS", Instant.now()));
+
+        assertThat(pending.getStatus()).isEqualTo(Transfer.Status.FAILED);
+        assertThat(pending.getFailureReason()).isEqualTo("INSUFFICIENT_FUNDS");
+        assertOutboxTopic(Topics.TRANSFER_FAILED, TransferFailedEvent.class, "INSUFFICIENT_FUNDS");
+    }
+
+    @Test
+    void ledgerPostedWithPartnerSuccessCompletesSaga() {
+        Transfer pending = pendingTransfer();
+        when(transfers.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(partnerBank.executeTransfer(any(), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any()))
+                .thenReturn(new PartnerBankClient.PartnerTransferResult(true, null));
+
+        service.onLedgerPosted(new vn.banking.events.LedgerPostedEvent(pending.getId(),
+                sourceId, destId, 250_000, "VND", Instant.now()));
+
+        assertThat(pending.getStatus()).isEqualTo(Transfer.Status.COMPLETED);
+        assertOutboxTopic(Topics.TRANSFER_COMPLETED, TransferCompletedEvent.class, null);
+    }
+
+    @Test
+    void partnerTimeoutFailsSagaWithPartnertimeoutReason() {
+        Transfer pending = pendingTransfer();
+        when(transfers.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(partnerBank.executeTransfer(any(), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any()))
+                .thenReturn(new PartnerBankClient.PartnerTransferResult(false, "PARTNER_TIMEOUT"));
+
+        service.onLedgerPosted(new vn.banking.events.LedgerPostedEvent(pending.getId(),
+                sourceId, destId, 250_000, "VND", Instant.now()));
+
+        assertThat(pending.getStatus()).isEqualTo(Transfer.Status.FAILED);
+        assertThat(pending.getFailureReason()).isEqualTo("PARTNER_TIMEOUT");
+        assertOutboxTopic(Topics.TRANSFER_FAILED, TransferFailedEvent.class, "PARTNER_TIMEOUT");
+    }
+
+    @Test
+    void ledgerPostedForCompletedOrUnknownTransferIsIgnored() {
+        when(transfers.findById(any(UUID.class))).thenReturn(Optional.empty());
+        service.onLedgerPosted(new vn.banking.events.LedgerPostedEvent(UUID.randomUUID(),
+                sourceId, destId, 100, "VND", Instant.now()));
+        verify(partnerBank, never()).executeTransfer(any(), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any());
+        verify(outbox, never()).save(any());
+    }
+
+    private Transfer pendingTransfer() {
+        Transfer transfer = new Transfer(idemKey, customerId, sourceId, destId, 250_000, "VND");
+        try {
+            var idField = Transfer.class.getDeclaredField("id");
+            idField.setAccessible(true);
+            idField.set(transfer, UUID.randomUUID());
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+        return transfer;
+    }
+
+    private void stubAccountsValid() {
+        var source = new AccountValidationClient.LedgerAccount(sourceId, "VN0001", customerId, "VND", 1_000_000);
+        var dest = new AccountValidationClient.LedgerAccount(destId, "VN0002", UUID.randomUUID(), "VND", 50);
+        when(accountValidation.fetch(sourceId, "Bearer t")).thenReturn(source);
+        when(accountValidation.fetch(destId, "Bearer t")).thenReturn(dest);
+    }
+
+    private void assertOutboxTopic(String expectedTopic, Class<?> payloadType, String expectedField) {
+        ArgumentCaptor<OutboxEvent> captor = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outbox).save(captor.capture());
+        OutboxEvent event = captor.getValue();
+        assertThat(event.getAggregateType()).isEqualTo(expectedTopic);
+        Object payload = vn.banking.events.EventJson.read(event.getPayload(), payloadType);
+        if (expectedField != null) {
+            assertThat(payload.toString()).contains(expectedField);
+        }
+    }
+}
