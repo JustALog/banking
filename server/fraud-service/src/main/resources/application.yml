@@ -1,0 +1,58 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: fraud-service
+  datasource:
+    url: ${BANKING_DB_URL:jdbc:postgresql://localhost:5432/fraud_db}
+    username: ${BANKING_DB_USER:fraud}
+    password: ${BANKING_DB_PASSWORD:fraud}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    locations: classpath:db/migration
+  kafka:
+    bootstrap-servers: ${BANKING_KAFKA_BOOTSTRAP:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+    consumer:
+      group-id: fraud-service
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
+      properties:
+        isolation.level: read_committed
+    listener:
+      ack-mode: record
+      observation-enabled: true   # continue the trace from the "traceparent" header
+    template:
+      observation-enabled: true   # send the current trace as a "traceparent" header
+
+banking:
+  fraud:
+    # minor units; default 5,000,000.00 VND-equivalent scale — tune via env
+    amount-threshold: ${BANKING_FRAUD_AMOUNT_THRESHOLD:5000000}
+    velocity-window-seconds: ${BANKING_FRAUD_VELOCITY_WINDOW_SECONDS:60}
+    velocity-max-transfers: ${BANKING_FRAUD_VELOCITY_MAX_TRANSFERS:5}
+    velocity-max-amount: ${BANKING_FRAUD_VELOCITY_MAX_AMOUNT:10000000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  level:
+    vn.banking: INFO
