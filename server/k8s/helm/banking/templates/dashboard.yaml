@@ -1,0 +1,11 @@
+{{- if .Values.monitoring.enabled }}
+# Picked up by the kube-prometheus-stack Grafana sidecar (label grafana_dashboard=1)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: banking-grafana-dashboard
+  labels:
+    grafana_dashboard: "1"
+data:
+  banking.json: {{ .Files.Get "files/grafana-dashboard.json" | replace "$namespace" .Release.Namespace | quote }}
+{{- end }}

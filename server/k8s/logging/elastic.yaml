@@ -1,0 +1,53 @@
+# ECK-managed single-node Elasticsearch + Kibana for the `banking-*` log indices.
+# Kibana: kubectl -n logging port-forward svc/banking-kb-kb-http 5601
+#         user `elastic`, password: kubectl -n logging get secret banking-es-es-elastic-user -o jsonpath='{.data.elastic}' | base64 -d
+apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: banking-es
+  namespace: logging
+spec:
+  version: 9.2.0
+  nodeSets:
+    - name: default
+      count: 1
+      config:
+        node.store.allow_mmap: false   # kind nodes don't raise vm.max_map_count
+      podTemplate:
+        spec:
+          containers:
+            - name: elasticsearch
+              resources:
+                # 512 MB heap pinned; ES needs ~700 MB off-heap on top (1 Gi limit was OOMKilled)
+                requests: {cpu: 200m, memory: 1280Mi}
+                limits: {memory: 1280Mi}
+              env:
+                - {name: ES_JAVA_OPTS, value: "-Xms512m -Xmx512m"}
+      volumeClaimTemplates:
+        - metadata:
+            name: elasticsearch-data
+          spec:
+            accessModes: [ReadWriteOnce]
+            resources:
+              requests:
+                storage: 5Gi
+---
+apiVersion: kibana.k8s.elastic.co/v1
+kind: Kibana
+metadata:
+  name: banking-kb
+  namespace: logging
+spec:
+  version: 9.2.0
+  count: 1
+  elasticsearchRef:
+    name: banking-es
+  podTemplate:
+    spec:
+      containers:
+        - name: kibana
+          env:
+            - {name: NODE_OPTIONS, value: "--max-old-space-size=512"}
+          resources:
+            requests: {cpu: 100m, memory: 768Mi}
+            limits: {memory: 1Gi}

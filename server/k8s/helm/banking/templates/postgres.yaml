@@ -1,0 +1,71 @@
+{{- /* Database-per-service on one CNPG cluster: one role + one <role>_db per app that declares `db`. */}}
+{{- range $name, $app := .Values.apps }}
+{{- with $app.db }}
+{{- $secret := printf "pg-%s" . }}
+{{- $existing := lookup "v1" "Secret" $.Release.Namespace $secret }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secret }}
+  labels:
+    cnpg.io/reload: "true"
+type: kubernetes.io/basic-auth
+data:
+  username: {{ . | b64enc }}
+  # keep the password across upgrades; generate one on first install
+  password: {{ if $existing }}{{ $existing.data.password }}{{ else }}{{ randAlphaNum 24 | b64enc }}{{ end }}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: {{ . }}-db
+spec:
+  name: {{ . }}_db
+  owner: {{ . }}
+  cluster:
+    name: banking-pg
+{{- end }}
+{{- end }}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: banking-pg
+spec:
+  instances: {{ .Values.postgres.instances }}
+  # Hikari pools never disconnect on their own, so the 180s default smart shutdown turned a primary
+  # pod deletion into a ~4 min write outage; 15s then fast shutdown -> failover in well under a minute
+  smartShutdownTimeout: 15
+  # PG17+: keep Debezium's logical slot (created with failover=true, see debezium.yaml) on the
+  # standby, so a failover no longer drops outbox rows written around the switchover
+  replicationSlots:
+    highAvailability:
+      synchronizeLogicalDecoding: true
+  storage:
+    size: {{ .Values.postgres.storage }}
+  postgresql:
+    parameters:
+      wal_level: logical   # Debezium CDC on transfer_db
+      max_connections: "300"
+      hot_standby_feedback: "on"     # both required by synchronizeLogicalDecoding
+      sync_replication_slots: "on"
+  managed:
+    roles:
+      {{- range $name, $app := .Values.apps }}
+      {{- with $app.db }}
+      - name: {{ . }}
+        ensure: present
+        login: true
+        replication: {{ $app.dbReplication | default false }}
+        passwordSecret:
+          name: pg-{{ . }}
+      {{- end }}
+      {{- end }}
+  {{- if .Values.backup.enabled }}
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: backup-store
+  {{- end }}
