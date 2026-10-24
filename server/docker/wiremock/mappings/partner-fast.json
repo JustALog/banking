@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "POST",
+    "urlPath": "/partner/v1/transfers"
+  },
+  "response": {
+    "status": 200,
+    "jsonBody": {
+      "status": "ACCEPTED",
+      "reference": "{{randomValue length=12 type='ALPHANUMERIC' uppercase=true}}"
+    },
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "transformers": ["response-template"]
+  }
+}

@@ -1,0 +1,249 @@
+# Full local demo: infra + all six services, memory-capped to fit a laptop (hard cap ~4 GB, typically ~2.5 GB used).
+#   from server/:  bash scripts/demo.sh      (build, start, register CDC, smoke test)
+# Kafka UI is opt-in:  docker compose --profile tools up -d
+# The Kubernetes round replaces this file with Strimzi, CloudNativePG, NGINX Ingress, etc.
+name: banking-dev
+
+# Shared settings for the Spring Boot services (one Dockerfile, --build-arg MODULE).
+# Explicit -Xmx wins over the Dockerfile's MaxRAMPercentage, leaving ~190 MB for metaspace/threads; SerialGC + C1-only
+# keep RSS and startup CPU low, which matters more than peak throughput for a demo.
+x-service: &service
+  restart: unless-stopped
+  depends_on:
+    postgres: {condition: service_healthy}
+    kafka: {condition: service_healthy}
+  volumes:
+    - ./keys:/keys:ro
+  deploy:
+    resources:
+      limits: {memory: 384m, cpus: "1.0"}
+  healthcheck:
+    test: ["CMD-SHELL", "curl -sf http://localhost:$$SERVER_PORT/actuator/health/readiness || exit 1"]
+    interval: 10s
+    timeout: 5s
+    start_period: 60s
+    retries: 12
+
+x-service-env: &service-env
+  JAVA_TOOL_OPTIONS: "-Xmx192m -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:MaxMetaspaceSize=128m -Xss512k"
+  BANKING_JWT_PUBLIC_KEY: file:/keys/jwt-public.pem
+  BANKING_KAFKA_BOOTSTRAP: kafka:29092
+  SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE: "4"
+  SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE: "1"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: banking-postgres
+    environment:
+      POSTGRES_PASSWORD: admin
+    ports:
+      - "5433:5432"                  # host 5432 is often taken by a local PostgreSQL
+    volumes:
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+      - pgdata:/var/lib/postgresql/data
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=logical"          # required by Debezium CDC
+      - "-c"
+      - "max_replication_slots=10"
+      - "-c"
+      - "max_wal_senders=10"
+      - "-c"
+      - "shared_buffers=64MB"
+      - "-c"
+      - "max_connections=60"         # 5 services x pool 4 + Debezium + psql
+    deploy:
+      resources:
+        limits: {memory: 256m}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  kafka:
+    image: apache/kafka:3.9.0
+    container_name: banking-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      # Single-broker KRaft for dev; the K8s round runs 3 brokers via Strimzi
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_LISTENERS: PLAINTEXT://:29092,CONTROLLER://:29093,HOST://:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx384m"
+    deploy:
+      resources:
+        limits: {memory: 640m}
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+
+  kafka-connect:
+    # debezium/connect on Docker Hub is gone; Debezium publishes to quay.io (same as the k8s chart)
+    image: quay.io/debezium/connect:2.7
+    container_name: banking-connect
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8086:8083"                  # host 8083 belongs to transfer-service, 8085 to notification-service
+    environment:
+      BOOTSTRAP_SERVERS: kafka:29092
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: connect_configs
+      OFFSET_STORAGE_TOPIC: connect_offsets
+      STATUS_STORAGE_TOPIC: connect_statuses
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      ENABLE_DEBEZIUM_SCRIPTING: "false"
+      HEAP_OPTS: "-Xms128m -Xmx384m"
+    deploy:
+      resources:
+        limits: {memory: 640m}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8083/connectors || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  # Partner bank mock. /partner-slow/v1/transfers adds a fixed 5s delay (trips the 3s read timeout).
+  wiremock:
+    image: wiremock/wiremock:3.9.1
+    container_name: banking-partner-mock
+    command: ["--port", "9090", "--global-response-templating", "--no-request-journal"]
+    ports:
+      - "9090:9090"
+    environment:
+      JAVA_OPTS: "-Xmx96m"
+    deploy:
+      resources:
+        limits: {memory: 192m}
+    volumes:
+      - ./wiremock/mappings:/home/wiremock/mappings:ro
+    healthcheck:   # the image's own check probes :8080, but we serve on :9090
+      test: ["CMD-SHELL", "curl -sf http://localhost:9090/__admin/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  auth-service:
+    <<: *service
+    build: {context: .., args: {MODULE: auth-service}}
+    image: banking/auth-service:dev
+    container_name: banking-auth
+    ports: ["8081:8081"]
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment:
+      <<: *service-env
+      SERVER_PORT: "8081"
+      BANKING_DB_URL: jdbc:postgresql://postgres:5432/customer_db
+      BANKING_JWT_PRIVATE_KEY: file:/keys/jwt-private.pem
+
+  ledger-service:
+    <<: *service
+    build: {context: .., args: {MODULE: ledger-service}}
+    image: banking/ledger-service:dev
+    container_name: banking-ledger
+    ports: ["8082:8082"]
+    environment:
+      <<: *service-env
+      SERVER_PORT: "8082"
+      BANKING_DB_URL: jdbc:postgresql://postgres:5432/ledger_db
+
+  transfer-service:
+    <<: *service
+    build: {context: .., args: {MODULE: transfer-service}}
+    image: banking/transfer-service:dev
+    container_name: banking-transfer
+    ports: ["8083:8083"]
+    environment:
+      <<: *service-env
+      SERVER_PORT: "8083"
+      BANKING_DB_URL: jdbc:postgresql://postgres:5432/transfer_db
+      BANKING_LEDGER_URL: http://ledger-service:8082
+      BANKING_PARTNER_URL: http://wiremock:9090
+      # Partner-timeout demo: BANKING_PARTNER_EXECUTE_PATH=/partner-slow/v1/transfers docker compose up -d transfer-service
+      BANKING_PARTNER_EXECUTE_PATH: ${BANKING_PARTNER_EXECUTE_PATH:-/partner/v1/transfers}
+
+  fraud-service:
+    <<: *service
+    build: {context: .., args: {MODULE: fraud-service}}
+    image: banking/fraud-service:dev
+    container_name: banking-fraud
+    ports: ["8084:8084"]
+    environment:
+      <<: *service-env
+      SERVER_PORT: "8084"
+      BANKING_DB_URL: jdbc:postgresql://postgres:5432/fraud_db
+
+  notification-service:
+    <<: *service
+    build: {context: .., args: {MODULE: notification-service}}
+    image: banking/notification-service:dev
+    container_name: banking-notification
+    ports: ["8085:8085"]
+    environment:
+      <<: *service-env
+      SERVER_PORT: "8085"
+      BANKING_DB_URL: jdbc:postgresql://postgres:5432/notify_db
+
+  gateway-service:
+    <<: *service
+    build: {context: .., args: {MODULE: gateway-service}}
+    image: banking/gateway-service:dev
+    container_name: banking-gateway
+    ports: ["8080:8080"]
+    depends_on:
+      auth-service: {condition: service_healthy}
+      ledger-service: {condition: service_healthy}
+      transfer-service: {condition: service_healthy}
+      notification-service: {condition: service_healthy}
+    environment:
+      <<: *service-env
+      SERVER_PORT: "8080"
+      BANKING_AUTH_URL: http://auth-service:8081
+      BANKING_LEDGER_URL: http://ledger-service:8082
+      BANKING_TRANSFER_URL: http://transfer-service:8083
+      BANKING_NOTIFY_URL: http://notification-service:8085
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    container_name: banking-kafka-ui
+    profiles: ["tools"]              # opt-in: ~400 MB the demo itself doesn't need
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: banking-dev
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: debezium
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
+      JAVA_OPTS: "-Xmx256m"
+    deploy:
+      resources:
+        limits: {memory: 384m}
+
+volumes:
+  pgdata:

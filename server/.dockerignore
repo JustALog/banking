@@ -1,0 +1,5 @@
+**/target/
+docker/
+k8s/
+scripts/
+local-run/
