@@ -1,0 +1,159 @@
+{{- /*
+  Plain Debezium Connect deployment rather than Strimzi KafkaConnect: Strimzi needs a registry to
+  build a plugin image, which kind does not have. Same image as docker-compose.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: debezium-connect
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: debezium-connect}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: debezium-connect}
+    spec:
+      containers:
+        - name: connect
+          image: quay.io/debezium/connect:2.7
+          ports:
+            - {name: rest, containerPort: 8083}
+          env:
+            - {name: BOOTSTRAP_SERVERS, value: "banking-kafka-kafka-bootstrap:9092"}
+            - {name: GROUP_ID, value: debezium}
+            - {name: CONFIG_STORAGE_TOPIC, value: connect_configs}
+            - {name: OFFSET_STORAGE_TOPIC, value: connect_offsets}
+            - {name: STATUS_STORAGE_TOPIC, value: connect_statuses}
+            - {name: CONFIG_STORAGE_REPLICATION_FACTOR, value: "{{ min 3 .Values.kafka.replicas }}"}
+            - {name: OFFSET_STORAGE_REPLICATION_FACTOR, value: "{{ min 3 .Values.kafka.replicas }}"}
+            - {name: STATUS_STORAGE_REPLICATION_FACTOR, value: "{{ min 3 .Values.kafka.replicas }}"}
+            # DB password resolved at runtime via ${env:...}, never stored in the connector config topic
+            - {name: CONNECT_CONFIG_PROVIDERS, value: env}
+            - {name: CONNECT_CONFIG_PROVIDERS_ENV_CLASS, value: org.apache.kafka.common.config.provider.EnvVarConfigProvider}
+            - {name: TRANSFER_DB_PASSWORD, valueFrom: {secretKeyRef: {name: pg-transfer, key: password}}}
+            {{- with .Values.debezium.heapOpts }}
+            - {name: HEAP_OPTS, value: {{ . | quote }}}
+            {{- end }}
+          readinessProbe:
+            httpGet: {path: /connectors, port: rest}
+          resources: {{- toYaml .Values.debezium.resources | nindent 12 }}
+        # After a failover the old primary rejoins as standby still holding its own non-synced "debezium"
+        # slot, and PG then refuses to sync the real one ("same name slot already exists"). Drop it there.
+        # shortcut: banking-pg-ro reaches one replica per run; with >2 instances loop over the replica pods.
+        - name: standby-slot-janitor
+          image: ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie   # preloaded by install.sh
+          command:
+            - sh
+            - -c
+            - >-
+              while true; do
+              psql -qtA -c "SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots
+              WHERE slot_name = 'debezium' AND NOT synced AND NOT active AND pg_is_in_recovery()" >/dev/null 2>&1;
+              sleep 30; done
+          env:
+            - {name: PGHOST, value: banking-pg-ro}
+            - {name: PGDATABASE, value: transfer_db}
+            - {name: PGUSER, value: transfer}
+            - {name: PGPASSWORD, valueFrom: {secretKeyRef: {name: pg-transfer, key: password}}}
+          resources:
+            requests: {cpu: 5m, memory: 16Mi}
+            limits: {memory: 64Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: debezium-connect
+spec:
+  selector: {app.kubernetes.io/name: debezium-connect}
+  ports:
+    - {name: rest, port: 8083, targetPort: rest}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: debezium-connector
+data:
+  # Same connector as docker/debezium/register.sh, pointed at the CNPG primary
+  transfer-outbox-router.json: |
+    {
+      "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+      "database.hostname": "banking-pg-rw",
+      "database.port": "5432",
+      "database.user": "transfer",
+      "database.password": "${env:TRANSFER_DB_PASSWORD}",
+      "database.dbname": "transfer_db",
+      "plugin.name": "pgoutput",
+      "publication.autocreate.mode": "filtered",
+      "topic.prefix": "banking",
+      "table.include.list": "public.outbox_event,public.debezium_heartbeat",
+      "heartbeat.interval.ms": "10000",
+      "heartbeat.action.query": "INSERT INTO debezium_heartbeat (id, ts) VALUES (1, now()) ON CONFLICT (id) DO UPDATE SET ts = EXCLUDED.ts",
+      "slot.name": "debezium",
+      "snapshot.mode": "initial",
+      "transforms": "dropHeartbeat,outbox",
+      "transforms.dropHeartbeat.type": "org.apache.kafka.connect.transforms.Filter",
+      "transforms.dropHeartbeat.predicate": "isHeartbeatTable",
+      "predicates": "isHeartbeatTable",
+      "predicates.isHeartbeatTable.type": "org.apache.kafka.connect.transforms.predicates.TopicNameMatches",
+      "predicates.isHeartbeatTable.pattern": "banking\\.public\\.debezium_heartbeat",
+      "transforms.outbox.type": "io.debezium.transforms.outbox.EventRouter",
+      "transforms.outbox.route.by.field": "aggregatetype",
+      "transforms.outbox.route.topic.replacement": "${routedByValue}",
+      "transforms.outbox.table.field.event.key": "aggregateid",
+      "transforms.outbox.table.field.event.payload": "payload",
+      "transforms.outbox.table.fields.additional.placement": "traceparent:header:traceparent",
+      "tombstones.on.delete": "false",
+      "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+      "value.converter": "org.apache.kafka.connect.storage.StringConverter"
+    }
+---
+# Waits until transfer-service has run Flyway (outbox_event exists), then upserts the connector (PUT is idempotent).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: debezium-connector-init
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 60
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: debezium-connector-init}
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+        # Debezium 2.7 cannot create a failover slot itself; it reuses an existing one with this name
+        - name: failover-slot
+          image: ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie   # same image CNPG runs (preloaded by install.sh)
+          command:
+            - psql
+            - -v
+            - ON_ERROR_STOP=1
+            - -c
+            - >-
+              SELECT pg_create_logical_replication_slot('debezium', 'pgoutput', false, false, true)
+              WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = 'debezium')
+          env:
+            - {name: PGHOST, value: banking-pg-rw}
+            - {name: PGDATABASE, value: transfer_db}
+            - {name: PGUSER, value: transfer}
+            - {name: PGPASSWORD, valueFrom: {secretKeyRef: {name: pg-transfer, key: password}}}
+      containers:
+        - name: register
+          image: curlimages/curl:8.11.1
+          command:
+            - sh
+            - -c
+            - >-
+              until curl -sf http://transfer-service:{{ index .Values.apps "transfer-service" "port" }}/actuator/health/readiness; do sleep 5; done &&
+              until curl -sf http://debezium-connect:8083/connectors; do sleep 5; done &&
+              curl -sf -X PUT -H 'Content-Type: application/json'
+              --data @/config/transfer-outbox-router.json
+              http://debezium-connect:8083/connectors/transfer-outbox-router/config
+          volumeMounts:
+            - {name: config, mountPath: /config}
+      volumes:
+        - name: config
+          configMap: {name: debezium-connector}

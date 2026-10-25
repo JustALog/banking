@@ -1,0 +1,185 @@
+{{- range $name, $app := .Values.apps }}
+{{- $a := mergeOverwrite (deepCopy $.Values.appDefaults) $app }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels: &labels
+    app.kubernetes.io/name: {{ $name }}
+    app.kubernetes.io/part-of: banking
+spec:
+  # no replicas: the HPA owns the count (minReplicas), so helm upgrade doesn't reset it
+  strategy:   # replace pods one at a time instead of surging extra JVMs (RAM budget)
+    rollingUpdate: {maxSurge: 0, maxUnavailable: 1}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ $name }}
+      containers:
+        - name: app
+          image: {{ $.Values.image.repository }}/{{ $name }}:{{ $.Values.image.tag }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ $a.port }}
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: {{ $.Values.javaToolOptions | quote }}
+            - name: SPRING_PROFILES_ACTIVE
+              value: json
+            - name: BANKING_JWT_PUBLIC_KEY
+              value: file:/keys/jwt-public.pem
+            - name: MANAGEMENT_METRICS_DISTRIBUTION_PERCENTILESHISTOGRAM_HTTP_SERVER_REQUESTS
+              value: "true"   # p95 panel needs histogram buckets
+            {{- if $a.jwtPrivateKey }}
+            - name: BANKING_JWT_PRIVATE_KEY
+              value: file:/keys/jwt-private.pem
+            {{- end }}
+            {{- if $a.kafka }}
+            - name: BANKING_KAFKA_BOOTSTRAP
+              value: banking-kafka-kafka-bootstrap:9092
+            {{- end }}
+            {{- with $a.db }}
+            - name: BANKING_DB_URL
+              value: jdbc:postgresql://banking-pg-rw:5432/{{ . }}_db
+            - name: BANKING_DB_USER
+              valueFrom: {secretKeyRef: {name: pg-{{ . }}, key: username}}
+            - name: BANKING_DB_PASSWORD
+              valueFrom: {secretKeyRef: {name: pg-{{ . }}, key: password}}
+            - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+              value: "5"
+            - name: SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE
+              value: "2"
+            {{- end }}
+            {{- range $k, $v := $a.env }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          resources: {{- toYaml $a.resources | nindent 12 }}
+          startupProbe:
+            httpGet: {path: /actuator/health/liveness, port: http}
+            periodSeconds: 5
+            failureThreshold: 36   # JVM + Flyway get 3 minutes on a cold node
+          livenessProbe:
+            httpGet: {path: /actuator/health/liveness, port: http}
+          readinessProbe:
+            httpGet: {path: /actuator/health/readiness, port: http}
+          volumeMounts:
+            - name: jwt
+              mountPath: /keys
+              readOnly: true
+            - name: tmp   # Tomcat/Netty need a writable /tmp
+              mountPath: /tmp
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: jwt
+          secret:
+            secretName: {{ $.Values.jwtSecret }}
+            items:
+              - {key: jwt-public.pem, path: jwt-public.pem}
+              {{- if $a.jwtPrivateKey }}
+              - {key: jwt-private.pem, path: jwt-private.pem}
+              {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+    app.kubernetes.io/part-of: banking
+spec:
+  selector:
+    app.kubernetes.io/name: {{ $name }}
+  ports:
+    - name: http
+      port: {{ $a.port }}
+      targetPort: http
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ $name }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ $name }}
+  minReplicas: {{ $a.hpa.min }}
+  maxReplicas: {{ $a.hpa.max }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: {{ $a.hpa.cpu }}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $name }}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+---
+# Only listed callers (plus Prometheus) may reach this app; everything else is dropped.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $.Values.monitoring.namespace }}
+        {{- range $a.allowFrom }}
+        {{- if eq . "ingress-nginx" }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        {{- else }}
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ . }}
+        {{- end }}
+        {{- end }}
+      ports:
+        - port: {{ $a.port }}
+{{- if $.Values.monitoring.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $name }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+  endpoints:
+    - port: http
+      path: /actuator/prometheus
+      interval: 15s
+{{- end }}
+{{- end }}

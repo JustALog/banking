@@ -1,0 +1,30 @@
+# Point-in-time recovery into a NEW cluster from the Barman backups of banking-pg.
+#   1. set targetTime (UTC) below
+#   2. kubectl -n banking apply -f k8s/backup/restore-pitr.yaml
+#   3. kubectl -n banking get cluster banking-pg-restore -w     (wait for "Cluster in healthy state")
+#   4. verify data, then repoint apps: helm upgrade ... or swap the -rw service
+# The restored cluster gets the same roles/databases (they are in the WAL); it does not archive into
+# the source's backup path, so it cannot clobber banking-pg backups.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: banking-pg-restore
+spec:
+  instances: 1
+  storage:
+    size: 2Gi
+  postgresql:
+    parameters:
+      wal_level: logical
+  bootstrap:
+    recovery:
+      source: banking-pg
+      recoveryTarget:
+        targetTime: "2026-10-27 10:00:00+00"
+  externalClusters:
+    - name: banking-pg
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: backup-store
+          serverName: banking-pg

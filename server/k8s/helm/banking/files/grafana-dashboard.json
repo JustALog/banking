@@ -1,0 +1,28 @@
+{
+  "title": "Banking Platform",
+  "uid": "banking-overview",
+  "schemaVersion": 39,
+  "time": {"from": "now-1h", "to": "now"},
+  "refresh": "30s",
+  "templating": {"list": [{"name": "datasource", "type": "datasource", "query": "prometheus"}]},
+  "panels": [
+    {"type": "timeseries", "title": "HTTP requests / s", "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+     "datasource": {"uid": "${datasource}"},
+     "targets": [{"expr": "sum by (job) (rate(http_server_requests_seconds_count{namespace=\"$namespace\"}[1m]))", "legendFormat": "{{job}}"}]},
+    {"type": "timeseries", "title": "HTTP p95 latency (s)", "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+     "datasource": {"uid": "${datasource}"},
+     "targets": [{"expr": "histogram_quantile(0.95, sum by (job, le) (rate(http_server_requests_seconds_bucket{namespace=\"$namespace\"}[5m])))", "legendFormat": "{{job}}"}]},
+    {"type": "timeseries", "title": "HTTP 5xx / s", "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+     "datasource": {"uid": "${datasource}"},
+     "targets": [{"expr": "sum by (job) (rate(http_server_requests_seconds_count{namespace=\"$namespace\", status=~\"5..\"}[1m]))", "legendFormat": "{{job}}"}]},
+    {"type": "timeseries", "title": "Kafka consumer lag", "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+     "datasource": {"uid": "${datasource}"},
+     "targets": [{"expr": "sum by (consumergroup, topic) (kafka_consumergroup_lag{namespace=\"$namespace\"})", "legendFormat": "{{consumergroup}} / {{topic}}"}]},
+    {"type": "timeseries", "title": "JVM heap used (bytes)", "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+     "datasource": {"uid": "${datasource}"},
+     "targets": [{"expr": "sum by (pod) (jvm_memory_used_bytes{namespace=\"$namespace\", area=\"heap\"})", "legendFormat": "{{pod}}"}]},
+    {"type": "timeseries", "title": "DB pool active connections", "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+     "datasource": {"uid": "${datasource}"},
+     "targets": [{"expr": "sum by (job) (hikaricp_connections_active{namespace=\"$namespace\"})", "legendFormat": "{{job}}"}]}
+  ]
+}

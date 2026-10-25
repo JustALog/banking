@@ -1,0 +1,27 @@
+# Layered on top of kube-prometheus-stack.yaml for PROFILE=demo: keep Prometheus + Grafana +
+# the Banking dashboard, drop what the dashboard doesn't use.
+prometheus:
+  prometheusSpec:
+    retention: 1d
+    scrapeInterval: 30s
+    resources:
+      requests: {cpu: 50m, memory: 384Mi}
+      limits: {memory: 768Mi}
+grafana:
+  resources:
+    requests: {cpu: 20m, memory: 128Mi}
+    limits: {memory: 256Mi}
+prometheusOperator:
+  resources:
+    requests: {cpu: 20m, memory: 64Mi}
+    limits: {memory: 192Mi}
+prometheus-node-exporter:
+  enabled: false
+nodeExporter:
+  enabled: false
+kubeEtcd: {enabled: false}
+kubeControllerManager: {enabled: false}
+kubeScheduler: {enabled: false}
+kubeProxy: {enabled: false}
+defaultRules:
+  create: false

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: banking
+description: Banking platform — services, Strimzi Kafka, CloudNativePG (+ Barman backups), Debezium, monitoring hooks
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

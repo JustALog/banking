@@ -1,0 +1,38 @@
+# Ships container logs (JSON from the `json` Spring profile) to the ECK Elasticsearch in `logging`.
+env:
+  - name: ES_PASSWORD
+    valueFrom:
+      secretKeyRef: {name: banking-es-es-elastic-user, key: elastic}
+config:
+  filters: |
+    [FILTER]
+        Name                kubernetes
+        Match               kube.*
+        Merge_Log           On
+        # app JSON has its own @timestamp; nest it so it doesn't clash with Logstash_Format's
+        Merge_Log_Key       app
+        Keep_Log            Off
+        K8S-Logging.Parser  On
+        K8S-Logging.Exclude On
+    [FILTER]
+        Name    grep
+        Match   kube.*
+        Regex   $kubernetes['namespace_name'] ^banking$
+  outputs: |
+    [OUTPUT]
+        Name                es
+        Match               kube.*
+        Host                banking-es-es-http.logging.svc
+        Port                9200
+        HTTP_User           elastic
+        HTTP_Passwd         ${ES_PASSWORD}
+        tls                 On
+        tls.verify          Off
+        Logstash_Format     On
+        Logstash_Prefix     banking
+        Suppress_Type_Name  On
+        Replace_Dots        On
+        Trace_Error         On
+resources:
+  requests: {cpu: 20m, memory: 32Mi}
+  limits: {memory: 128Mi}

@@ -1,0 +1,14 @@
+# Low-memory overrides for the `banking` chart (install.sh PROFILE=demo), ~5 GB total instead of ~9 GB.
+# Same architecture, fewer copies: 1 Kafka broker (RF=1), 1 Postgres (no standby), no backups.
+# JVM sizes/limits come from the chart defaults; HPA/PDB/NetworkPolicy/Ingress/monitoring stay on.
+
+postgres:
+  instances: 1
+  storage: 1Gi
+
+kafka:
+  replicas: 1
+  storage: 1Gi
+
+backup:
+  enabled: false   # Barman plugin + cert-manager + SeaweedFS are skipped in the demo profile

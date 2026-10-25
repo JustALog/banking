@@ -1,0 +1,105 @@
+image:
+  repository: banking   # images are banking/<service>:<tag>; kind loads them locally
+  tag: dev
+  pullPolicy: IfNotPresent
+
+jwtSecret: jwt-keys      # created by install.sh from docker/keys/*.pem
+
+# One entry per Spring Boot service. The key is the module name, image name and Service DNS name.
+#   db:        role name; the database is <db>_db on the CNPG cluster
+#   kafka:     inject BANKING_KAFKA_BOOTSTRAP
+#   allowFrom: pod names (app.kubernetes.io/name) allowed to call it; "ingress-nginx" = the ingress controller
+apps:
+  gateway-service:
+    port: 8080
+    allowFrom: [ingress-nginx]
+    env:
+      BANKING_AUTH_URL: http://auth-service:8081
+      BANKING_LEDGER_URL: http://ledger-service:8082
+      BANKING_TRANSFER_URL: http://transfer-service:8083
+      BANKING_NOTIFY_URL: http://notification-service:8085
+      LOGGING_STRUCTURED_FORMAT_CONSOLE: logstash   # no logback-spring.xml in this module
+    hpa: {min: 1, max: 2, cpu: 75}   # edge: scales with request rate
+  auth-service:
+    port: 8081
+    db: customer
+    jwtPrivateKey: true
+    allowFrom: [gateway-service]
+  ledger-service:
+    port: 8082
+    db: ledger
+    kafka: true
+    allowFrom: [gateway-service, transfer-service]
+  transfer-service:
+    port: 8083
+    db: transfer
+    dbReplication: true   # Debezium reads transfer_db WAL with this role
+    kafka: true
+    allowFrom: [gateway-service, debezium-connector-init]
+    env:
+      BANKING_LEDGER_URL: http://ledger-service:8082
+      BANKING_PARTNER_URL: http://partner-mock:9090
+  fraud-service:
+    port: 8084
+    db: fraud
+    kafka: true
+    allowFrom: []
+    hpa: {min: 1, max: 3, cpu: 75}   # fraud scoring is the CPU hot path
+  notification-service:
+    port: 8085
+    db: notify
+    kafka: true
+    allowFrom: [gateway-service]
+    env:
+      LOGGING_STRUCTURED_FORMAT_CONSOLE: logstash
+
+# Fixed small heap (wins over the image's MaxRAMPercentage); SerialGC + C1-only keep RSS ~300 MB per pod.
+javaToolOptions: "-Xmx192m -Xss512k -XX:MaxMetaspaceSize=128m -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:+ExitOnOutOfMemoryError"
+
+# Defaults applied to every app unless overridden in the entry above
+# RAM budget (whole kind node, full profile): ~9 GB steady, ~10 GB with gateway/fraud fully scaled.
+# Only the edge (gateway) and the CPU hot path (fraud) autoscale; the rest stay at 1 replica.
+appDefaults:
+  hpa: {min: 1, max: 1, cpu: 75}
+  resources:
+    requests: {cpu: 100m, memory: 320Mi}
+    limits: {cpu: "1", memory: 384Mi}   # cpu cap: one busy JVM can't starve the rest of the node
+
+ingress:
+  className: nginx
+  host: ""   # empty = any host (kind: http://localhost)
+
+postgres:
+  instances: 2          # primary + streaming standby
+  storage: 2Gi
+
+kafka:
+  replicas: 3           # topic RF = min(3, replicas); min.insync.replicas = 2 only with 3+ brokers
+  storage: 2Gi
+  resources:
+    requests: {cpu: 100m, memory: 640Mi}
+    limits: {memory: 896Mi}   # 384m heap + ~400 MB off-heap (KRaft, network buffers); 768Mi got OOMKilled
+  jvmOptions: {"-Xms": 256m, "-Xmx": 384m}
+  topicOperator:
+    resources:
+      requests: {cpu: 50m, memory: 256Mi}
+      limits: {memory: 384Mi}
+    jvmOptions: {"-Xmx": 192m}
+  topics: [transfer.requested, fraud.decided, ledger.posted, ledger.rejected, transfer.completed, transfer.failed, transfer.dlq]
+  partitions: 3
+
+debezium:
+  heapOpts: "-Xms128m -Xmx384m"   # Connect image default heap when empty
+  resources:
+    requests: {cpu: 100m, memory: 512Mi}
+    limits: {memory: 640Mi}
+
+backup:
+  enabled: true
+  schedule: "0 0 2 * * *"   # CNPG cron has a seconds field: daily 02:00
+  retention: 7d
+  storage: 5Gi
+
+monitoring:
+  enabled: true   # needs kube-prometheus-stack CRDs (ServiceMonitor/PodMonitor)
+  namespace: monitoring
