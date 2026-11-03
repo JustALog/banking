@@ -107,6 +107,9 @@ for s in $SERVICES; do
 done
 # shellcheck disable=SC2046
 kind load docker-image --name banking $(printf "banking/%s:$TAG " $SERVICES)
+# drop previous runs' tags (host + node) or every reinstall leaks ~1 GB; ctr removes only the tag, not a shared digest
+docker images 'banking/*' --format '{{.Repository}}:{{.Tag}}' | grep -v ":$TAG$" | xargs -r docker rmi >/dev/null || true
+docker exec banking-control-plane sh -c "ctr -n k8s.io images ls -q | grep '^docker.io/banking/' | grep -v ':$TAG\$' | xargs -r ctr -n k8s.io images rm" >/dev/null || true
 
 step "banking chart"
 kubectl create namespace $NS --dry-run=client -o yaml | kubectl apply -f -
