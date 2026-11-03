@@ -1,5 +1,6 @@
 package vn.banking.auth.customer;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -10,4 +11,6 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID> {
     boolean existsByEmailIgnoreCase(String email);
 
     Optional<Customer> findByEmailIgnoreCase(String email);
+
+    List<Customer> findTop200ByOrderByCreatedAtDesc();
 }

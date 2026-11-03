@@ -1,4 +1,4 @@
-import { api, errorText, hooks, log, setToken, waitForTransfer } from './api.js';
+import { api, errorText, hooks, log, setToken, waitForTransfer } from './gateway.js';
 import { scenarios } from './scenarios.js';
 
 const app = document.getElementById('app');
@@ -104,7 +104,7 @@ function accountsView() {
         r.data.map((e) => [time(e.createdAt), e.direction, el('td', { class: 'num' }, money(e.amount, account.currency)), el('span', { class: 'id' }, e.transferId)]),
         'Tài khoản chưa có bút toán.'),
       el('h3', { style: 'margin-top:20px' }, 'Nạp tiền thử'),
-      el('p', { class: 'muted' }, 'Hệ thống không có API nạp tiền. Chạy lệnh sau ở thư mục gốc của repo, rồi bấm Tải lại.'),
+      el('p', { class: 'muted' }, 'Quản trị viên nạp tiền ở tab Quản trị: Tài khoản. Hoặc chạy lệnh sau ở thư mục gốc của repo, rồi bấm Tải lại.'),
       el('pre', { class: 'cmd' }, seedCommand(account.id))));
   }
 
@@ -306,13 +306,100 @@ function scenariosView() {
       el('pre', { class: 'cmd' }, PARTNER_RESTORE)));
 }
 
+/* ---------- Admin (ROLE_ADMIN; the services enforce it, the tabs are only hidden) ---------- */
+
+const reloadHeader = (title, load) => {
+  const reload = el('button', { class: 'quiet', type: 'button' }, 'Tải lại');
+  reload.addEventListener('click', busy(reload, load));
+  return el('div', { class: 'row', style: 'justify-content:space-between;margin-bottom:16px' }, el('h2', { style: 'margin:0' }, title), reload);
+};
+
+function adminCustomersView() {
+  const list = el('div');
+  const msg = message();
+  async function load() {
+    const r = await api('GET', '/auth/admin/customers');
+    if (r.status !== 200) return list.replaceChildren(el('p', { class: 'msg fail' }, errorText(r)));
+    return list.replaceChildren(table(['Họ tên', 'Email', 'Vai trò', 'Trạng thái', 'Ngày tạo', ''],
+      r.data.map((c) => {
+        const locked = c.status === 'LOCKED';
+        const toggle = el('button', { class: 'quiet', type: 'button', disabled: c.id === state.customer.id }, locked ? 'Mở khoá' : 'Khoá');
+        toggle.addEventListener('click', busy(toggle, async () => {
+          const res = await api('POST', `/auth/admin/customers/${c.id}/${locked ? 'unlock' : 'lock'}`);
+          if (res.status !== 200) return say(msg, errorText(res), 'fail');
+          say(msg, `${c.email}: ${res.data.status}`, 'pass');
+          return load();
+        }));
+        return [c.fullName, c.email, c.role, el('span', { class: `status ${locked ? 'fail' : 'pass'}` }, c.status), time(c.createdAt), toggle];
+      }),
+      'Chưa có khách hàng.'));
+  }
+  load();
+  return el('div', {},
+    reloadHeader('Quản trị: Khách hàng', load),
+    el('section', {}, msg, list),
+    el('p', { class: 'muted' }, 'Khoá chỉ chặn đăng nhập mới; JWT đã cấp vẫn dùng được tới khi hết hạn (60 phút). Hiển thị tối đa 200 bản ghi mới nhất.'));
+}
+
+function adminAccountsView() {
+  const list = el('div');
+  const msg = message();
+  async function load() {
+    const [r, people] = await Promise.all([api('GET', '/accounts/admin'), api('GET', '/auth/admin/customers')]);
+    if (r.status !== 200) return list.replaceChildren(el('p', { class: 'msg fail' }, errorText(r)));
+    const owner = new Map((people.status === 200 ? people.data : []).map((c) => [c.id, c.email]));
+    return list.replaceChildren(table(['Số tài khoản', 'Chủ tài khoản', 'Số dư', 'Nạp tiền'],
+      r.data.map((a) => {
+        const amount = el('input', { type: 'number', min: 1, step: 1, max: 1e12, required: true, value: '10000000', 'aria-label': `Số tiền nạp vào ${a.accountNo}` });
+        amount.style.width = '160px';
+        const go = el('button', { type: 'submit' }, 'Nạp');
+        const form = el('form', { class: 'row' }, amount, go);
+        form.addEventListener('submit', busy(go, async () => {
+          const res = await api('POST', `/accounts/admin/${a.id}/deposit`, { body: { amount: Number(amount.value) } });
+          if (res.status !== 200) return say(msg, errorText(res), 'fail');
+          say(msg, `Đã nạp ${money(amount.value, a.currency)} vào ${a.accountNo}. Số dư mới ${money(res.data.balance, a.currency)}.`, 'pass');
+          return load();
+        }));
+        return [el('span', {}, a.accountNo, el('br'), el('span', { class: 'id' }, a.id)), owner.get(a.customerId) ?? el('span', { class: 'id' }, a.customerId),
+          el('td', { class: 'num' }, money(a.balance, a.currency)), form];
+      }),
+      'Chưa có tài khoản nào trong hệ thống.'));
+  }
+  load();
+  return el('div', {},
+    reloadHeader('Quản trị: Tài khoản', load),
+    el('section', {}, msg, list),
+    el('p', { class: 'muted' }, 'Nạp tiền ghi một bút toán CREDIT với mã tham chiếu mới. Hiển thị tối đa 200 tài khoản mới nhất.'));
+}
+
+function adminTransfersView() {
+  const list = el('div');
+  async function load() {
+    const r = await api('GET', '/transfers/admin');
+    if (r.status !== 200) return list.replaceChildren(el('p', { class: 'msg fail' }, errorText(r)));
+    return list.replaceChildren(table(['Thời gian', 'Từ', 'Đến', 'Số tiền', 'Trạng thái', 'Mã giao dịch'],
+      r.data.map((t) => [time(t.createdAt), el('span', { class: 'id' }, t.sourceAccountId), el('span', { class: 'id' }, t.destAccountId),
+        el('td', { class: 'num' }, money(t.amount, t.currency)), statusCell(t), el('span', { class: 'id' }, t.id)]),
+      'Chưa có giao dịch nào trong hệ thống.'));
+  }
+  load();
+  return el('div', {},
+    reloadHeader('Quản trị: Giao dịch', load),
+    el('section', {}, list),
+    el('p', { class: 'muted' }, 'Hiển thị tối đa 200 giao dịch mới nhất.'));
+}
+
 /* ---------- Shell ---------- */
 
+// [label, view, roles allowed]
 const TABS = {
-  accounts: ['Tài khoản', accountsView],
-  transfers: ['Chuyển tiền', transfersView],
-  notifications: ['Thông báo', notificationsView],
-  scenarios: ['Kịch bản kiểm thử', scenariosView],
+  accounts: ['Tài khoản', accountsView, ['USER', 'ADMIN']],
+  transfers: ['Chuyển tiền', transfersView, ['USER', 'ADMIN']],
+  notifications: ['Thông báo', notificationsView, ['USER', 'ADMIN']],
+  scenarios: ['Kịch bản kiểm thử', scenariosView, ['USER', 'ADMIN']],
+  adminCustomers: ['Quản trị: Khách hàng', adminCustomersView, ['ADMIN']],
+  adminAccounts: ['Quản trị: Tài khoản', adminAccountsView, ['ADMIN']],
+  adminTransfers: ['Quản trị: Giao dịch', adminTransfersView, ['ADMIN']],
 };
 
 const logList = el('div', { class: 'list', 'aria-live': 'off' });
@@ -331,6 +418,7 @@ function logout() {
   setToken(null);
   state.customer = null;
   state.results = {};
+  state.tab = 'accounts';
   render();
 }
 
@@ -341,14 +429,16 @@ function render() {
     app.replaceChildren(el('div', { class: 'layout', style: 'min-height:100vh' }, authView(), logPanel));
     return;
   }
-  const tabs = Object.entries(TABS).map(([id, [label]]) => el('button', {
+  const allowed = Object.entries(TABS).filter(([, [, , roles]]) => roles.includes(state.customer.role));
+  if (!allowed.some(([id]) => id === state.tab)) state.tab = allowed[0][0];
+  const tabs = allowed.map(([id, [label]]) => el('button', {
     type: 'button',
     'aria-current': state.tab === id ? 'page' : false,
     onclick: () => { state.tab = id; render(); },
   }, label));
   app.replaceChildren(
     el('nav', { 'aria-label': 'Chính' }, el('strong', {}, 'Banking'), tabs,
-      el('span', { class: 'who' }, `${state.customer.fullName} (${state.customer.email})`),
+      el('span', { class: 'who' }, `${state.customer.fullName} (${state.customer.email}) · ${state.customer.role}`),
       el('button', { type: 'button', onclick: logout }, 'Đăng xuất')),
     el('div', { class: 'layout' }, el('main', {}, TABS[state.tab][1]()), logPanel));
 }

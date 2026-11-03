@@ -158,6 +158,8 @@ services:
       SERVER_PORT: "8081"
       BANKING_DB_URL: jdbc:postgresql://postgres:5432/customer_db
       BANKING_JWT_PRIVATE_KEY: file:/keys/jwt-private.pem
+      BANKING_ADMIN_EMAIL: admin@banking.local   # dev only
+      BANKING_ADMIN_PASSWORD: admin12345
 
   ledger-service:
     <<: *service

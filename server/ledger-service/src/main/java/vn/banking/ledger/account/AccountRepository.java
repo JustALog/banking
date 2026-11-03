@@ -16,6 +16,8 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
 
     List<Account> findByCustomerIdOrderByCreatedAt(UUID customerId);
 
+    List<Account> findTop200ByOrderByCreatedAtDesc();
+
     Optional<Account> findByAccountNo(String accountNo);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

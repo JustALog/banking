@@ -10,6 +10,7 @@ public record CustomerResponse(
         String email,
         String fullName,
         String status,
+        String role,
         Instant createdAt) {
 
     public static CustomerResponse from(Customer customer) {
@@ -18,6 +19,7 @@ public record CustomerResponse(
                 customer.getEmail(),
                 customer.getFullName(),
                 customer.getStatus().name(),
+                customer.getRole().name(),
                 customer.getCreatedAt());
     }
 }

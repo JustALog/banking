@@ -43,7 +43,7 @@ public class JwtService {
                 .issuer(properties.issuer())
                 .subject(customer.getId().toString())
                 .claim("email", customer.getEmail())
-                .claim("roles", List.of("ROLE_USER"))
+                .claim("roles", List.of("ROLE_" + customer.getRole().name()))
                 .issueTime(Date.from(now))
                 .expirationTime(Date.from(now.plus(properties.ttl())))
                 .build();
