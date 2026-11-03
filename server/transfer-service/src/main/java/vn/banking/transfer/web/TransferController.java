@@ -66,6 +66,12 @@ public class TransferController {
                 .toList();
     }
 
+    /** ROLE_ADMIN only (enforced in SecurityConfig). */
+    @GetMapping("/admin")
+    public List<TransferResponse> allTransfers() {
+        return saga.listAll().stream().map(TransferResponse::from).toList();
+    }
+
     static UUID currentCustomer(Authentication authentication) {
         JwtAuthenticationToken jwtAuth = (JwtAuthenticationToken) authentication;
         return UUID.fromString(jwtAuth.getToken().getSubject());

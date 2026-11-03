@@ -1,5 +1,6 @@
 package vn.banking.auth.customer;
 
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -46,6 +47,27 @@ public class CustomerService {
     @Transactional(readOnly = true)
     public Customer getById(UUID id) {
         return repository.findById(id).orElseThrow(() -> new CustomerNotFoundException(id));
+    }
+
+    @Transactional(readOnly = true)
+    public List<Customer> listAll() {
+        return repository.findTop200ByOrderByCreatedAtDesc();
+    }
+
+    @Transactional
+    public Customer setStatus(UUID id, Customer.Status status, UUID actingAdminId) {
+        if (id.equals(actingAdminId)) {
+            throw new SelfLockException();
+        }
+        Customer customer = getById(id);
+        customer.setStatus(status);
+        return customer;
+    }
+
+    public static class SelfLockException extends RuntimeException {
+        public SelfLockException() {
+            super("Admins cannot change their own status");
+        }
     }
 
     public static class DuplicateEmailException extends RuntimeException {

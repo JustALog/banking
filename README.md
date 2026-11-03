@@ -3,14 +3,28 @@
 Distributed banking & payment platform per `Architect_diagram.drawio`.
 - **Round 1**: Core money-movement path: Auth/Customer → Transfer (saga + outbox + Debezium CDC) → Fraud (stub) → Ledger (sole balance owner) → Partner Bank call (Resilience4j).
 - **Round 2**: **API Gateway** (Spring Cloud Gateway, JWT verification, Idempotency-Key enforcement), **Notification Service** (`notify_db`, consumes completed/failed events, mocks Email/SMS), **Fraud Service with persistence & real velocity rules** (`fraud_db`), and **Ledger Reversal Compensation** for partner bank failures after posting.
-
 - **Round 3**: **Kubernetes** (kind, Helm, Strimzi 3-broker KRaft Kafka, CloudNativePG primary+standby, NGINX Ingress, HPA/PDB/NetworkPolicy), **Backup** (Barman Cloud plugin → S3, daily + continuous WAL, PITR), **Observability** (kube-prometheus-stack + Grafana dashboard, Fluent Bit → ECK Elasticsearch/Kibana).
+- **Test console**: Vite + vanilla-JS UI in `client/` for auth, accounts, transfers, notifications, scripted failure scenarios and a live API log.
 
-React SPA is still to come.
+A React SPA is still on the roadmap; the current `client/` is intentionally framework-free.
 
 ## Layout
 
 ```
+client/
+  index.html            Vite entry point
+  DESIGN.md             visual tokens and component notes
+  src/main.js           login/register, accounts, transfers, notifications, scenarios
+  src/api.js            gateway fetch wrapper, JWT handling, live API log
+  src/scenarios.js      automated failure-path checks
+  src/style.css         console styling
+  vite.config.js        dev server on :5173, proxies API paths to the gateway
+
+web/                    customer + admin banking website (React, :5174)
+  src/gateway.js        calls the gateway: JWT header, session storage, error messages
+  src/components.jsx    shell, receipt, shared hooks
+  src/pages/            public.jsx, user.jsx, admin.jsx
+
 server/
   common-events/        Kafka topic names + event records (shared contract)
   gateway-service/      :8080  Spring Cloud Gateway, JWT resource server, route filter
@@ -37,6 +51,7 @@ Full API list grouped by service (vendor), with request/response examples: [API_
 ## Prerequisites
 
 - JDK 21+, Docker Desktop (or any docker compose v2)
+- Node.js `^20.19.0` or `>=22.12.0`, plus npm, for the test console
 - bash + curl (the smoke script uses python3 or node for JSON parsing; either works)
 
 ## Quickstart
@@ -63,6 +78,8 @@ To hack on one service from the IDE instead, `docker compose stop <service>` and
 Kafka Connect REST is on host port **8086**.
 
 Swagger UI per service: `http://localhost:808{1..5}/swagger-ui.html`.
+
+For the browser test console, see [Test console (client/)](#test-console-client).
 
 ## How the money moves & recovers
 
@@ -159,16 +176,45 @@ Known limits:
   WHERE t.status = 'PENDING' AND o.aggregatetype = 'transfer.requested';` (on `transfer_db`).
 - ingress-nginx is retired upstream (2026); the Ingress object is standard, so swapping controllers is a values change.
 
-## Roadmap
+## Website (web/)
 
-1. React SPA in `client/`.
+The customer-facing banking site: React 19 + React Router 7 on Vite, talking to the gateway only.
+
+- **Public:** landing page, sign-in, and registration (opens a first VND account automatically).
+- **Customer (`/app`):** overview with total balance per currency and account cards; accounts list and opening new ones; account detail with statement and the account id to share for receiving money; transfer with review step and a per-transfer `Idempotency-Key`; live transfer receipt that polls until the saga settles; transaction history with status filter; notifications; profile.
+- **Admin (`/admin`, `ROLE_ADMIN` only):** customers with search and lock/unlock; all accounts with owner and deposit; all transfers with status filter.
+
+```bash
+cd web
+npm install
+npm run dev     # http://localhost:5174 (GATEWAY_URL overrides http://localhost:8080)
+npm test        # formatter unit tests (node --test)
+```
+
+The session (JWT + profile) is kept in `sessionStorage`: a refresh keeps you signed in, closing the tab signs you out.
 
 ## Test console (client/)
 
-A small web page for exercising the system through the gateway, with a live API log. Start the backend first (`bash server/scripts/demo.sh`), then:
+A lightweight Vite + vanilla-JS console for exercising the system through the gateway. It keeps the JWT in memory, shows every request/response in a live API log, and has four tabs for every user plus three admin tabs:
+
+- **Tài khoản** — open accounts, list balances, inspect ledger entries. There is no deposit API; the tab prints the `psql` command to seed a balance.
+- **Chuyển tiền** — submit a transfer with an `Idempotency-Key`, then watch the saga poll to `COMPLETED` or `FAILED`.
+- **Thông báo** — notifications persisted by notification-service.
+- **Quản trị: Khách hàng / Tài khoản / Giao dịch** — shown only to `ROLE_ADMIN`: list all customers and lock/unlock them, list all accounts and deposit into them, list all transfers. Sign in as `admin@banking.local` / `admin12345` (set by `BANKING_ADMIN_EMAIL` / `BANKING_ADMIN_PASSWORD` in docker compose; unset means no admin is created).
+- **Kịch bản kiểm thử** — one-click checks for USER getting 403 on admin APIs, missing JWT, blocked internal routes, missing/replayed idempotency keys, fraud threshold, insufficient funds and velocity rejection. The partner-timeout/reversal case is manual because it needs a service restart.
+
+Prerequisites: Node.js `^20.19.0` or `>=22.12.0`, plus npm. Start the backend first (`bash server/scripts/demo.sh`), then:
 
 ```bash
 cd client
 npm install
-npm run dev     # http://localhost:5173 (GATEWAY_URL overrides the default http://localhost:8080)
+npm run dev     # http://localhost:5173
 ```
+
+Vite proxies `/auth`, `/accounts`, `/transfers` and `/notifications` to the gateway, so the browser never calls the services directly and no CORS setup is needed. Override the target with `GATEWAY_URL=http://host:8080 npm run dev`.
+
+`npm run build` emits static assets to `client/dist/`.
+
+## Roadmap
+
+1. React SPA: done in `web/`. `client/` stays as the test console for now.

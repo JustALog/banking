@@ -18,6 +18,8 @@ public class Customer {
 
     public enum Status { ACTIVE, LOCKED }
 
+    public enum Role { USER, ADMIN }
+
     @Id
     private UUID id;
 
@@ -33,6 +35,10 @@ public class Customer {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private Status status = Status.ACTIVE;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private Role role = Role.USER;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
@@ -80,6 +86,18 @@ public class Customer {
 
     public Status getStatus() {
         return status;
+    }
+
+    public void setStatus(Status status) {
+        this.status = status;
+    }
+
+    public Role getRole() {
+        return role;
+    }
+
+    public void setRole(Role role) {
+        this.role = role;
     }
 
     public Instant getCreatedAt() {

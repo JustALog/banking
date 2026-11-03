@@ -39,6 +39,24 @@ export const scenarios = [
     },
   },
   {
+    name: 'USER gọi API quản trị',
+    expected: 'Người dùng thường nhận HTTP 403 ở cả ba API /admin',
+    async run() {
+      const email = `scenario-${crypto.randomUUID()}@test.local`;
+      const password = 'scenario-password';
+      await api('POST', '/auth/register', { auth: false, body: { email, password, fullName: 'Scenario user' } });
+      const login = await api('POST', '/auth/login', { auth: false, body: { email, password } });
+      if (login.status !== 200) throw new Error(`Không đăng nhập được người dùng thử (HTTP ${login.status})`);
+      // Fresh USER token instead of the signed-in one, which may be an admin.
+      const headers = { Authorization: `Bearer ${login.data.accessToken}` };
+      const codes = [];
+      for (const path of ['/auth/admin/customers', '/accounts/admin', '/transfers/admin']) {
+        codes.push((await api('GET', path, { auth: false, headers })).status);
+      }
+      return { pass: codes.every((c) => c === 403), actual: `HTTP ${codes.join(', ')}` };
+    },
+  },
+  {
     name: 'Chặn endpoint nội bộ',
     expected: 'GET /accounts/internal/{id} qua gateway trả HTTP 404',
     async run() {

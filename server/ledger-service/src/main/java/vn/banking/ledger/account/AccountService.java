@@ -7,15 +7,20 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import vn.banking.ledger.entry.LedgerEntry;
+import vn.banking.ledger.entry.LedgerEntryRepository;
+
 @Service
 public class AccountService {
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final AccountRepository repository;
+    private final LedgerEntryRepository entries;
 
-    public AccountService(AccountRepository repository) {
+    public AccountService(AccountRepository repository, LedgerEntryRepository entries) {
         this.repository = repository;
+        this.entries = entries;
     }
 
     @Transactional
@@ -43,6 +48,24 @@ public class AccountService {
     public Account getAccountUnchecked(UUID accountId) {
         return repository.findById(accountId)
                 .orElseThrow(() -> new AccountNotFoundException(accountId));
+    }
+
+    @Transactional(readOnly = true)
+    public List<Account> listAll() {
+        return repository.findTop200ByOrderByCreatedAtDesc();
+    }
+
+    /**
+     * Admin cash-in. shortcut: single CREDIT entry with a fresh reference id in transfer_id (no
+     * cash/suspense account, so it is not double-entry); add a bank cash account when deposits become real.
+     */
+    @Transactional
+    public Account deposit(UUID accountId, long amount) {
+        Account account = repository.findByIdForUpdate(accountId)
+                .orElseThrow(() -> new AccountNotFoundException(accountId));
+        account.credit(amount);
+        entries.save(new LedgerEntry(UUID.randomUUID(), account.getId(), LedgerEntry.Direction.CREDIT, amount));
+        return account;
     }
 
     private String generateUniqueAccountNo() {
