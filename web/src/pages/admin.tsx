@@ -1,32 +1,35 @@
 import { useState } from 'react';
-import { api } from '../gateway.js';
-import { Loaded, Money, PageHead, StatusBadge, useLoad, useSession } from '../components.jsx';
-import { STATUS, date, dateTime, money, reasonText, shortId } from '../format.js';
+import type { FormEvent } from 'react';
+import { api, errorMessage } from '../gateway';
+import { Loaded, Money, PageHead, StatusBadge, useCustomer, useLoad } from '../components';
+import type { Flash } from '../components';
+import { STATUS_FILTERS, date, dateTime, money, reasonText, shortId } from '../format';
+import type { Account, Customer, Transfer, TransferStatus } from '../types';
 
 // Every /admin API is ROLE_ADMIN-only on the server; these pages are hidden from users, not trusted to protect.
-const get = (path) => () => api('GET', path).then((r) => r.data);
+const get = <T,>(path: string) => () => api<T>('GET', path).then((r) => r.data);
 
-function Search({ value, onChange, label }) {
+function Search({ value, onChange, label }: { value: string; onChange: (value: string) => void; label: string }) {
   return <input type="search" className="search" placeholder={label} aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} />;
 }
 
 const LIMIT_NOTE = <p className="hint">Hiển thị tối đa 200 bản ghi mới nhất.</p>;
 
 export function AdminCustomers() {
-  const { customer: me } = useSession();
-  const customers = useLoad(get('/auth/admin/customers'));
+  const me = useCustomer();
+  const customers = useLoad(get<Customer[]>('/auth/admin/customers'));
   const [q, setQ] = useState('');
-  const [msg, setMsg] = useState(null);
+  const [msg, setMsg] = useState<Flash | null>(null);
 
-  const toggle = async (c) => {
+  const toggle = async (c: Customer) => {
     const locking = c.status === 'ACTIVE';
     if (locking && !window.confirm(`Khoá ${c.email}? Khách hàng sẽ không đăng nhập được nữa.`)) return;
     try {
-      await api('POST', `/auth/admin/customers/${c.id}/${locking ? 'lock' : 'unlock'}`);
+      await api<Customer>('POST', `/auth/admin/customers/${c.id}/${locking ? 'lock' : 'unlock'}`);
       setMsg({ tone: 'ok', text: `${locking ? 'Đã khoá' : 'Đã mở khoá'} ${c.email}.` });
       customers.reload();
     } catch (err) {
-      setMsg({ tone: 'bad', text: err.message });
+      setMsg({ tone: 'bad', text: errorMessage(err) });
     }
   };
 
@@ -72,20 +75,20 @@ export function AdminCustomers() {
   );
 }
 
-function DepositForm({ account, onDone }) {
+function DepositForm({ account, onDone }: { account: Account; onDone: (result: Flash) => void }) {
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
-  const submit = async (e) => {
+  const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const value = Number(amount);
     if (!window.confirm(`Nạp ${money(value, account.currency)} vào ${account.accountNo}?`)) return;
     setBusy(true);
     try {
-      const { data } = await api('POST', `/accounts/admin/${account.id}/deposit`, { body: { amount: value } });
+      const { data } = await api<Account>('POST', `/accounts/admin/${account.id}/deposit`, { body: { amount: value } });
       setAmount('');
       onDone({ tone: 'ok', text: `Đã nạp ${money(value, account.currency)} vào ${account.accountNo}. Số dư mới ${money(data.balance, account.currency)}.` });
     } catch (err) {
-      onDone({ tone: 'bad', text: err.message });
+      onDone({ tone: 'bad', text: errorMessage(err) });
     } finally {
       setBusy(false);
     }
@@ -100,12 +103,12 @@ function DepositForm({ account, onDone }) {
 }
 
 export function AdminAccounts() {
-  const accounts = useLoad(get('/accounts/admin'));
-  const customers = useLoad(get('/auth/admin/customers'));
+  const accounts = useLoad(get<Account[]>('/accounts/admin'));
+  const customers = useLoad(get<Customer[]>('/auth/admin/customers'));
   const [q, setQ] = useState('');
-  const [msg, setMsg] = useState(null);
+  const [msg, setMsg] = useState<Flash | null>(null);
   const owner = new Map((customers.data ?? []).map((c) => [c.id, c]));
-  const done = (m) => { setMsg(m); accounts.reload(); };
+  const done = (m: Flash) => { setMsg(m); accounts.reload(); };
 
   return (
     <>
@@ -143,11 +146,11 @@ export function AdminAccounts() {
 }
 
 export function AdminTransfers() {
-  const transfers = useLoad(get('/transfers/admin'));
-  const accounts = useLoad(get('/accounts/admin'));
-  const [filter, setFilter] = useState('');
+  const transfers = useLoad(get<Transfer[]>('/transfers/admin'));
+  const accounts = useLoad(get<Account[]>('/accounts/admin'));
+  const [filter, setFilter] = useState<TransferStatus | ''>('');
   const accountNo = new Map((accounts.data ?? []).map((a) => [a.id, a.accountNo]));
-  const label = (id) => accountNo.get(id) ?? shortId(id);
+  const label = (id: string) => accountNo.get(id) ?? shortId(id);
 
   return (
     <>
@@ -155,7 +158,7 @@ export function AdminTransfers() {
         <button type="button" className="ghost" onClick={transfers.reload}>Làm mới</button>
       </PageHead>
       <div className="segmented" role="group" aria-label="Lọc theo trạng thái">
-        {[['', 'Tất cả'], ...Object.entries(STATUS).map(([k, v]) => [k, v.label])].map(([k, l]) => (
+        {STATUS_FILTERS.map(([k, l]) => (
           <button key={k} type="button" aria-pressed={filter === k} onClick={() => setFilter(k)}>{l}</button>
         ))}
       </div>

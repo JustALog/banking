@@ -4,26 +4,30 @@ Distributed banking & payment platform per `Architect_diagram.drawio`.
 - **Round 1**: Core money-movement path: Auth/Customer → Transfer (saga + outbox + Debezium CDC) → Fraud (stub) → Ledger (sole balance owner) → Partner Bank call (Resilience4j).
 - **Round 2**: **API Gateway** (Spring Cloud Gateway, JWT verification, Idempotency-Key enforcement), **Notification Service** (`notify_db`, consumes completed/failed events, mocks Email/SMS), **Fraud Service with persistence & real velocity rules** (`fraud_db`), and **Ledger Reversal Compensation** for partner bank failures after posting.
 - **Round 3**: **Kubernetes** (kind, Helm, Strimzi 3-broker KRaft Kafka, CloudNativePG primary+standby, NGINX Ingress, HPA/PDB/NetworkPolicy), **Backup** (Barman Cloud plugin → S3, daily + continuous WAL, PITR), **Observability** (kube-prometheus-stack + Grafana dashboard, Fluent Bit → ECK Elasticsearch/Kibana).
-- **Test console**: Vite + vanilla-JS UI in `client/` for auth, accounts, transfers, notifications, scripted failure scenarios and a live API log.
+- **Test console**: Vite + vanilla TypeScript UI in `client/` for auth, accounts, transfers, notifications, scripted failure scenarios and a live API log.
 
-A React SPA is still on the roadmap; the current `client/` is intentionally framework-free.
+The React SPA lives in `web/`; `client/` stays a framework-free TypeScript test console.
 
 ## Layout
 
 ```
-client/
+client/                 test console (TypeScript, no framework, :5173)
   index.html            Vite entry point
   DESIGN.md             visual tokens and component notes
-  src/main.js           login/register, accounts, transfers, notifications, scenarios
-  src/api.js            gateway fetch wrapper, JWT handling, live API log
-  src/scenarios.js      automated failure-path checks
+  src/main.ts           login/register, accounts, transfers, notifications, scenarios, admin tabs
+  src/gateway.ts        gateway fetch wrapper, JWT handling, live API log
+  src/scenarios.ts      automated failure-path checks
+  src/types.ts          response shapes the console reads
   src/style.css         console styling
-  vite.config.js        dev server on :5173, proxies API paths to the gateway
+  vite.config.ts        dev server on :5173, proxies API paths to the gateway
 
-web/                    customer + admin banking website (React, :5174)
-  src/gateway.js        calls the gateway: JWT header, session storage, error messages
-  src/components.jsx    shell, receipt, shared hooks
-  src/pages/            public.jsx, user.jsx, admin.jsx
+web/                    customer + admin banking website (React + TypeScript, :5174)
+  src/types.ts          API response types (mirror the services' *Response records)
+  src/gateway.ts        calls the gateway: JWT header, session storage, error messages
+  src/format.ts         money/date formatting, transfer status and failure-reason text
+  src/components.tsx    shell, receipt, shared hooks (useLoad, useSession)
+  src/pages/            public.tsx, user.tsx, admin.tsx
+  Dockerfile            Node 14 build stage → nginx (SPA fallback + API proxy)
 
 server/
   common-events/        Kafka topic names + event records (shared contract)
@@ -178,7 +182,7 @@ Known limits:
 
 ## Website (web/)
 
-The customer-facing banking site: React 19 + React Router 6 on Vite 4, talking to the gateway only. The toolchain is pinned to versions that still run on Node 14 (Vite 4.5, `@vitejs/plugin-react` 4, mocha 10); lockfiles are `lockfileVersion: 2` so npm 6 (bundled with Node 14) and newer npm both honour them.
+The customer-facing banking site: React 19 + React Router 6 + TypeScript (strict) on Vite 4, talking to the gateway only. The toolchain is pinned to versions that still run on Node 14 (Vite 4.5, `@vitejs/plugin-react` 4, TypeScript 5.9, Vitest 0.34); lockfiles are `lockfileVersion: 2` so npm 6 (bundled with Node 14) and newer npm both honour them.
 
 - **Public:** landing page, sign-in, and registration (opens a first VND account automatically).
 - **Customer (`/app`):** overview with total balance per currency and account cards; accounts list and opening new ones; account detail with statement and the account id to share for receiving money; transfer with review step and a per-transfer `Idempotency-Key`; live transfer receipt that polls until the saga settles; transaction history with status filter; notifications; profile.
@@ -188,8 +192,9 @@ The customer-facing banking site: React 19 + React Router 6 on Vite 4, talking t
 cd web
 npm install
 npm run dev     # http://localhost:5174 (GATEWAY_URL overrides http://localhost:8080)
-npm test        # formatter unit tests (mocha)
-npm run build   # static bundle in dist/
+npm run typecheck   # tsc --noEmit (strict)
+npm test            # unit tests for format.ts and gateway.ts (vitest)
+npm run build       # type-check, then static bundle in dist/
 ```
 
 Deploy as a container (build stage on Node 14, served by nginx, API paths proxied to the gateway):
@@ -204,7 +209,7 @@ The session (JWT + profile) is kept in `sessionStorage`: a refresh keeps you sig
 
 ## Test console (client/)
 
-A lightweight Vite + vanilla-JS console for exercising the system through the gateway. It keeps the JWT in memory, shows every request/response in a live API log, and has four tabs for every user plus three admin tabs:
+A lightweight Vite + vanilla TypeScript console for exercising the system through the gateway. It keeps the JWT in memory, shows every request/response in a live API log, and has four tabs for every user plus three admin tabs:
 
 - **Tài khoản** — open accounts, list balances, inspect ledger entries. There is no deposit API; the tab prints the `psql` command to seed a balance.
 - **Chuyển tiền** — submit a transfer with an `Idempotency-Key`, then watch the saga poll to `COMPLETED` or `FAILED`.
@@ -222,7 +227,7 @@ npm run dev     # http://localhost:5173
 
 Vite proxies `/auth`, `/accounts`, `/transfers` and `/notifications` to the gateway, so the browser never calls the services directly and no CORS setup is needed. Override the target with `GATEWAY_URL=http://host:8080 npm run dev`.
 
-`npm run build` emits static assets to `client/dist/`.
+`npm run typecheck` runs `tsc`, `npm test` runs the Vitest unit tests, and `npm run build` type-checks and then emits static assets to `client/dist/`.
 
 ## CI/CD
 
@@ -230,7 +235,7 @@ Vite proxies `/auth`, `/accounts`, `/transfers` and `/notifications` to the gate
 
 | Job | What it checks |
 |---|---|
-| `frontend` | `web/` and `client/` on Node 14.18.0, 14.x, 16, 18, 20, 22: `npm ci` → `npm test` → `npm run build` → `vite preview` smoke (root page + SPA deep link). The Node 14 `dist/` is kept as an artifact. |
+| `frontend` | `web/` and `client/` on Node 14.18.0, 14.x, 16, 18, 20, 22: `npm ci` → `npm run typecheck` → `npm test` → `npm run build` → `vite preview` smoke (root page + SPA deep link). The Node 14 `dist/` is kept as an artifact. |
 | `backend` | JDK 21, throwaway RS256 keys, `mvn verify` (all module unit tests + gateway context test). |
 | `helm` | `helm lint` of the `banking` chart, full and `PROFILE=demo` values. |
 | `images` | Builds the 6 service images and the `web` image (whose build stage is Node 14); runs the web image and checks `/healthz`, SPA fallback and the gateway proxy. |

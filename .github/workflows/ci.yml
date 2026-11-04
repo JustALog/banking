@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 jobs:
-  # Both frontends must install, test, build and serve on every supported Node line, oldest (14) first.
+  # Both TypeScript frontends must install, type-check, test, build and serve on every supported Node line, oldest (14) first.
   frontend:
     name: ${{ matrix.app }} · node ${{ matrix.node }}
     runs-on: ubuntu-latest
@@ -36,7 +36,8 @@ jobs:
           cache-dependency-path: ${{ matrix.app }}/package-lock.json
       - run: node --version && npm --version
       - run: npm ci --no-audit --no-fund
-      - run: npm run test --if-present
+      - run: npm run typecheck
+      - run: npm test
       - run: npm run build
       - name: Smoke test the production build (vite preview)
         run: |
