@@ -1,6 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell, RequireRole } from './components.jsx';
 import { Landing, Login, NotFound, Register } from './pages/public.jsx';
 import { AccountDetail, Accounts, Dashboard, Notifications, Profile, TransactionDetail, Transactions, Transfer } from './pages/user.jsx';

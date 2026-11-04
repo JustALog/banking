@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, Navigate, useLocation, useNavigate } from 'react-router';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { api, login } from '../gateway.js';
 import { Receipt, useSession } from '../components.jsx';
 

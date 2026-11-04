@@ -1,4 +1,4 @@
-import { api, waitForTransfer } from './api.js';
+import { api, waitForTransfer } from './gateway.js';
 
 const IDEMPOTENCY = 'Idempotency-Key';
 const AMOUNT_OVER_FRAUD_LIMIT = 5000001; // banking.fraud.amount-threshold is 5,000,000

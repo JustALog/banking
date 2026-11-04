@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
-import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
+import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { getSession, logout, onSessionChange } from './gateway.js';
 import { STATUS, dateTime, money, reasonText, shortId } from './format.js';
 

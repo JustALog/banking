@@ -51,7 +51,7 @@ Full API list grouped by service (vendor), with request/response examples: [API_
 ## Prerequisites
 
 - JDK 21+, Docker Desktop (or any docker compose v2)
-- Node.js `^20.19.0` or `>=22.12.0`, plus npm, for the test console
+- Node.js `>=14.18.0` (CI tests 14.18 → 22), plus npm, for `web/` and `client/`
 - bash + curl (the smoke script uses python3 or node for JSON parsing; either works)
 
 ## Quickstart
@@ -178,7 +178,7 @@ Known limits:
 
 ## Website (web/)
 
-The customer-facing banking site: React 19 + React Router 7 on Vite, talking to the gateway only.
+The customer-facing banking site: React 19 + React Router 6 on Vite 4, talking to the gateway only. The toolchain is pinned to versions that still run on Node 14 (Vite 4.5, `@vitejs/plugin-react` 4, mocha 10); lockfiles are `lockfileVersion: 2` so npm 6 (bundled with Node 14) and newer npm both honour them.
 
 - **Public:** landing page, sign-in, and registration (opens a first VND account automatically).
 - **Customer (`/app`):** overview with total balance per currency and account cards; accounts list and opening new ones; account detail with statement and the account id to share for receiving money; transfer with review step and a per-transfer `Idempotency-Key`; live transfer receipt that polls until the saga settles; transaction history with status filter; notifications; profile.
@@ -188,7 +188,16 @@ The customer-facing banking site: React 19 + React Router 7 on Vite, talking to 
 cd web
 npm install
 npm run dev     # http://localhost:5174 (GATEWAY_URL overrides http://localhost:8080)
-npm test        # formatter unit tests (node --test)
+npm test        # formatter unit tests (mocha)
+npm run build   # static bundle in dist/
+```
+
+Deploy as a container (build stage on Node 14, served by nginx, API paths proxied to the gateway):
+
+```bash
+docker compose -f server/docker/docker-compose.yml --profile web up -d --build web   # http://localhost:5174
+# or standalone:
+docker build -t banking/web web/ && docker run -p 5174:80 -e GATEWAY_URL=http://host.docker.internal:8080 banking/web
 ```
 
 The session (JWT + profile) is kept in `sessionStorage`: a refresh keeps you signed in, closing the tab signs you out.
@@ -203,7 +212,7 @@ A lightweight Vite + vanilla-JS console for exercising the system through the ga
 - **Quản trị: Khách hàng / Tài khoản / Giao dịch** — shown only to `ROLE_ADMIN`: list all customers and lock/unlock them, list all accounts and deposit into them, list all transfers. Sign in as `admin@banking.local` / `admin12345` (set by `BANKING_ADMIN_EMAIL` / `BANKING_ADMIN_PASSWORD` in docker compose; unset means no admin is created).
 - **Kịch bản kiểm thử** — one-click checks for USER getting 403 on admin APIs, missing JWT, blocked internal routes, missing/replayed idempotency keys, fraud threshold, insufficient funds and velocity rejection. The partner-timeout/reversal case is manual because it needs a service restart.
 
-Prerequisites: Node.js `^20.19.0` or `>=22.12.0`, plus npm. Start the backend first (`bash server/scripts/demo.sh`), then:
+Prerequisites: Node.js `>=14.18.0`, plus npm. Start the backend first (`bash server/scripts/demo.sh`), then:
 
 ```bash
 cd client
@@ -214,6 +223,23 @@ npm run dev     # http://localhost:5173
 Vite proxies `/auth`, `/accounts`, `/transfers` and `/notifications` to the gateway, so the browser never calls the services directly and no CORS setup is needed. Override the target with `GATEWAY_URL=http://host:8080 npm run dev`.
 
 `npm run build` emits static assets to `client/dist/`.
+
+## CI/CD
+
+`.github/workflows/ci.yml` runs on every pull request and push to `main`:
+
+| Job | What it checks |
+|---|---|
+| `frontend` | `web/` and `client/` on Node 14.18.0, 14.x, 16, 18, 20, 22: `npm ci` → `npm test` → `npm run build` → `vite preview` smoke (root page + SPA deep link). The Node 14 `dist/` is kept as an artifact. |
+| `backend` | JDK 21, throwaway RS256 keys, `mvn verify` (all module unit tests + gateway context test). |
+| `helm` | `helm lint` of the `banking` chart, full and `PROFILE=demo` values. |
+| `images` | Builds the 6 service images and the `web` image (whose build stage is Node 14); runs the web image and checks `/healthz`, SPA fallback and the gateway proxy. |
+
+On a push to `main` or a `v*` tag, `images` also pushes to GHCR as `ghcr.io/<owner>/banking/<image>` with tags
+`latest` (main), `sha-<short>`, the branch name and the semver of the tag. The path matches the chart's
+`<image.repository>/<service>` layout, so a cluster can roll out a CI build with
+`--set image.repository=ghcr.io/<owner>/banking --set image.tag=sha-<short>` (GHCR packages are private by default:
+make them public or add an image pull secret). Nothing is deployed to a cluster automatically.
 
 ## Roadmap
 

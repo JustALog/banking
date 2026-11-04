@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../gateway.js';
 import { CopyButton, Loaded, Money, PageHead, Receipt, StatusBadge, useLoad, useSession } from '../components.jsx';
 import { STATUS, UUID_RE, date, dateTime, money, reasonText, shortId, totalsByCurrency } from '../format.js';
