@@ -1,9 +1,12 @@
 import { useState } from 'react';
-import { Link, Navigate, useLocation, useNavigate } from 'react-router';
-import { api, login } from '../gateway.js';
-import { Receipt, useSession } from '../components.jsx';
+import type { FormEvent, ReactNode } from 'react';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { ApiError, api, errorMessage, login } from '../gateway';
+import { Receipt, useSession } from '../components';
+import type { ReceiptTransfer } from '../components';
+import type { Account } from '../types';
 
-const SAMPLE = {
+const SAMPLE: ReceiptTransfer = {
   id: 'a41c09e2-6b3f-4c8e-9d21-5f7e3b0c8d14',
   amount: 2500000,
   currency: 'VND',
@@ -60,7 +63,7 @@ export function Landing() {
   );
 }
 
-function AuthFrame({ title, children, footer }) {
+function AuthFrame({ title, children, footer }: { title: string; children: ReactNode; footer: ReactNode }) {
   return (
     <div className="auth-page">
       <Link to="/" className="brand">Banking</Link>
@@ -73,18 +76,28 @@ function AuthFrame({ title, children, footer }) {
   );
 }
 
-function useSubmit(action) {
+/** Form field values by input name (these forms have text inputs only). */
+type Fields = Record<string, string>;
+
+const KNOWN_ERRORS: Record<number, string> = {
+  401: 'Email hoặc mật khẩu không đúng.',
+  409: 'Email này đã được đăng ký. Hãy đăng nhập.',
+  423: 'Tài khoản đã bị khoá. Liên hệ ngân hàng để mở lại.',
+};
+
+function useSubmit(action: (fields: Fields) => Promise<void>) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const onSubmit = async (e) => {
+  const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
     setBusy(true);
     try {
-      await action(Object.fromEntries(new FormData(e.currentTarget)));
+      const fields: Fields = {};
+      new FormData(e.currentTarget).forEach((value, name) => { fields[name] = String(value); });
+      await action(fields);
     } catch (err) {
-      const known = { 401: 'Email hoặc mật khẩu không đúng.', 409: 'Email này đã được đăng ký. Hãy đăng nhập.', 423: 'Tài khoản đã bị khoá. Liên hệ ngân hàng để mở lại.' };
-      setError(known[err.status] ?? err.message);
+      setError((err instanceof ApiError && KNOWN_ERRORS[err.status]) || errorMessage(err));
       setBusy(false);
     }
   };
@@ -94,7 +107,7 @@ function useSubmit(action) {
 export function Login() {
   const session = useSession();
   const navigate = useNavigate();
-  const from = useLocation().state?.from;
+  const from = (useLocation().state as { from?: string } | null)?.from;
   const { error, busy, onSubmit } = useSubmit(async ({ email, password }) => {
     const customer = await login(email, password);
     navigate(from ?? (customer.role === 'ADMIN' ? '/admin' : '/app'), { replace: true });
@@ -120,7 +133,7 @@ export function Register() {
     await api('POST', '/auth/register', { body: { fullName, email, password } });
     await login(email, password);
     // A new customer has no account yet; open one in VND so the dashboard is usable immediately.
-    await api('POST', '/accounts', { body: { currency: 'VND' } }).catch(() => {});
+    await api<Account>('POST', '/accounts', { body: { currency: 'VND' } }).catch(() => undefined);
     navigate('/app', { replace: true });
   });
   if (session) return <Navigate to="/app" replace />;

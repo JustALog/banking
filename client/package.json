@@ -2,11 +2,20 @@
   "name": "banking-client",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=14.18.0"
+  },
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "typecheck": "tsc",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
   },
   "devDependencies": {
-    "vite": "^8.3.5"
+    "@types/node": "14.18.63",
+    "typescript": "5.9.3",
+    "vite": "4.5.14",
+    "vitest": "0.34.6"
   }
 }

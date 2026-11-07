@@ -1,20 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
-import { api } from '../gateway.js';
-import { CopyButton, Loaded, Money, PageHead, Receipt, StatusBadge, useLoad, useSession } from '../components.jsx';
-import { STATUS, UUID_RE, date, dateTime, money, reasonText, shortId, totalsByCurrency } from '../format.js';
+import type { ChangeEvent, FormEvent } from 'react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { ApiError, api, errorMessage } from '../gateway';
+import { CopyButton, Loaded, Money, PageHead, Receipt, StatusBadge, useCustomer, useLoad } from '../components';
+import type { Flash } from '../components';
+import { STATUS_FILTERS, UUID_RE, date, dateTime, money, reasonText, shortId, totalsByCurrency } from '../format';
+import type { Account, Customer, LedgerEntry, Notification, Transfer as TransferRecord, TransferStatus } from '../types';
 
-const get = (path) => () => api('GET', path).then((r) => r.data);
-const useAccounts = () => useLoad(get('/accounts'));
-const accountLabel = (accounts, id) => accounts?.find((a) => a.id === id)?.accountNo;
+const get = <T,>(path: string) => () => api<T>('GET', path).then((r) => r.data);
+const useAccounts = () => useLoad(get<Account[]>('/accounts'));
+const accountLabel = (accounts: Account[] | null, id: string): string | undefined => accounts?.find((a) => a.id === id)?.accountNo;
 
 /* ---------- Dashboard ---------- */
 
 export function Dashboard() {
-  const { customer } = useSession();
+  const customer = useCustomer();
   const accounts = useAccounts();
-  const transfers = useLoad(get('/transfers'));
-  const notes = useLoad(get('/notifications'));
+  const transfers = useLoad(get<TransferRecord[]>('/transfers'));
+  const notes = useLoad(get<Notification[]>('/notifications'));
   return (
     <>
       <PageHead title={`Xin chào, ${customer.fullName}`}>
@@ -61,7 +64,7 @@ export function Dashboard() {
   );
 }
 
-function NoAccount({ reload }) {
+function NoAccount({ reload }: { reload: () => void }) {
   return (
     <div>
       <p>Bạn chưa có tài khoản thanh toán nào.</p>
@@ -70,7 +73,7 @@ function NoAccount({ reload }) {
   );
 }
 
-function AccountCard({ account }) {
+function AccountCard({ account }: { account: Account }) {
   return (
     <Link to={`/app/accounts/${account.id}`} className="account-card">
       <span className="muted-dark">Tài khoản thanh toán {account.currency}</span>
@@ -80,7 +83,7 @@ function AccountCard({ account }) {
   );
 }
 
-function TransferList({ transfers, accounts }) {
+function TransferList({ transfers, accounts }: { transfers: TransferRecord[]; accounts: Account[] | null }) {
   return (
     <ul className="tx-list">
       {transfers.map((t) => (
@@ -103,19 +106,19 @@ function TransferList({ transfers, accounts }) {
 
 /* ---------- Accounts ---------- */
 
-function OpenAccount({ onOpened }) {
+function OpenAccount({ onOpened }: { onOpened?: () => void }) {
   const [currency, setCurrency] = useState('VND');
-  const [msg, setMsg] = useState(null);
+  const [msg, setMsg] = useState<Flash | null>(null);
   const [busy, setBusy] = useState(false);
-  const submit = async (e) => {
+  const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setBusy(true);
     try {
-      const { data } = await api('POST', '/accounts', { body: { currency } });
+      const { data } = await api<Account>('POST', '/accounts', { body: { currency } });
       setMsg({ tone: 'ok', text: `Đã mở tài khoản ${data.accountNo}.` });
       onOpened?.();
     } catch (err) {
-      setMsg({ tone: 'bad', text: err.message });
+      setMsg({ tone: 'bad', text: errorMessage(err) });
     } finally {
       setBusy(false);
     }
@@ -148,8 +151,8 @@ export function Accounts() {
 
 export function AccountDetail() {
   const { id } = useParams();
-  const account = useLoad(get(`/accounts/${id}`), [id]);
-  const entries = useLoad(get(`/accounts/${id}/entries`), [id]);
+  const account = useLoad(get<Account>(`/accounts/${id}`), [id]);
+  const entries = useLoad(get<LedgerEntry[]>(`/accounts/${id}/entries`), [id]);
   return (
     <Loaded state={account}>
       {(a) => (
@@ -211,11 +214,17 @@ export function Transfer() {
   );
 }
 
-function TransferForm({ accounts }) {
+type Mode = 'own' | 'other';
+
+/** `accounts` is never empty: <Transfer> shows the "open an account" hint instead. */
+function TransferForm({ accounts }: { accounts: Account[] }) {
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const [source, setSource] = useState(accounts.some((a) => a.id === params.get('from')) ? params.get('from') : accounts[0].id);
-  const [mode, setMode] = useState(accounts.length > 1 ? 'own' : 'other');
+  const [source, setSource] = useState(() => {
+    const wanted = params.get('from');
+    return wanted && accounts.some((a) => a.id === wanted) ? wanted : accounts[0].id;
+  });
+  const [mode, setMode] = useState<Mode>(accounts.length > 1 ? 'own' : 'other');
   const [own, setOwn] = useState('');
   const [other, setOther] = useState('');
   const [amount, setAmount] = useState('');
@@ -225,7 +234,7 @@ function TransferForm({ accounts }) {
   // One key per intended transfer: a retry after a network error reuses it, so money moves at most once.
   const key = useRef(crypto.randomUUID());
 
-  const from = accounts.find((a) => a.id === source);
+  const from = accounts.find((a) => a.id === source) ?? accounts[0];
   const targets = accounts.filter((a) => a.id !== source && a.currency === from.currency);
   const ownTarget = targets.find((a) => a.id === own) ?? targets[0];
   const dest = mode === 'own' ? (ownTarget?.id ?? '') : other.trim();
@@ -240,19 +249,27 @@ function TransferForm({ accounts }) {
     return '';
   }, [dest, mode, source, value, from]);
 
-  const edit = (setter) => (e) => { setter(e.target.value); setReview(false); setError(''); key.current = crypto.randomUUID(); };
+  // Any edit changes the intended transfer, so it leaves review and gets a fresh idempotency key.
+  function edit<V extends string>(setter: (value: V) => void) {
+    return (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      setter(e.target.value as V);
+      setReview(false);
+      setError('');
+      key.current = crypto.randomUUID();
+    };
+  }
 
   const send = async () => {
     setBusy(true);
     setError('');
     try {
-      const { data } = await api('POST', '/transfers', {
+      const { data } = await api<TransferRecord>('POST', '/transfers', {
         body: { sourceAccountId: source, destAccountId: dest, amount: value, currency: from.currency },
         headers: { 'Idempotency-Key': key.current },
       });
       navigate(`/app/transactions/${data.id}`);
     } catch (err) {
-      setError(err.status === 422 ? 'Không tìm thấy tài khoản nhận, hoặc tài khoản không hợp lệ.' : err.message);
+      setError(err instanceof ApiError && err.status === 422 ? 'Không tìm thấy tài khoản nhận, hoặc tài khoản không hợp lệ.' : errorMessage(err));
       setBusy(false);
     }
   };
@@ -287,12 +304,12 @@ function TransferForm({ accounts }) {
       <fieldset>
         <legend>Chuyển đến</legend>
         <div className="segmented">
-          <label><input type="radio" name="mode" value="own" checked={mode === 'own'} onChange={edit(setMode)} />Tài khoản của tôi</label>
-          <label><input type="radio" name="mode" value="other" checked={mode === 'other'} onChange={edit(setMode)} />Người khác</label>
+          <label><input type="radio" name="mode" value="own" checked={mode === 'own'} onChange={edit<Mode>(setMode)} />Tài khoản của tôi</label>
+          <label><input type="radio" name="mode" value="other" checked={mode === 'other'} onChange={edit<Mode>(setMode)} />Người khác</label>
         </div>
         {mode === 'own' ? (
           targets.length ? (
-            <select aria-label="Tài khoản nhận" value={ownTarget.id} onChange={edit(setOwn)}>
+            <select aria-label="Tài khoản nhận" value={ownTarget?.id} onChange={edit(setOwn)}>
               {targets.map((a) => <option key={a.id} value={a.id}>{a.accountNo} ({money(a.balance, a.currency)})</option>)}
             </select>
           ) : <p className="hint">Bạn chưa có tài khoản {from.currency} nào khác. <Link to="/app/accounts">Mở thêm tài khoản</Link>.</p>
@@ -315,19 +332,17 @@ function TransferForm({ accounts }) {
 
 /* ---------- Transactions ---------- */
 
-const FILTERS = [['', 'Tất cả'], ...Object.entries(STATUS).map(([k, v]) => [k, v.label])];
-
 export function Transactions() {
-  const transfers = useLoad(get('/transfers'));
+  const transfers = useLoad(get<TransferRecord[]>('/transfers'));
   const accounts = useAccounts();
-  const [filter, setFilter] = useState('');
+  const [filter, setFilter] = useState<TransferStatus | ''>('');
   return (
     <>
       <PageHead title="Lịch sử giao dịch">
         <button type="button" className="ghost" onClick={transfers.reload}>Làm mới</button>
       </PageHead>
       <div className="segmented" role="group" aria-label="Lọc theo trạng thái">
-        {FILTERS.map(([k, label]) => (
+        {STATUS_FILTERS.map(([k, label]) => (
           <button key={k} type="button" aria-pressed={filter === k} onClick={() => setFilter(k)}>{label}</button>
         ))}
       </div>
@@ -348,7 +363,7 @@ const POLL_LIMIT_MS = 60000;
 
 export function TransactionDetail() {
   const { id } = useParams();
-  const transfer = useLoad(get(`/transfers/${id}`), [id]);
+  const transfer = useLoad(get<TransferRecord>(`/transfers/${id}`), [id]);
   const accounts = useAccounts();
   const [stalled, setStalled] = useState(false);
   const pending = transfer.data?.status === 'PENDING';
@@ -393,7 +408,7 @@ export function TransactionDetail() {
 /* ---------- Notifications & profile ---------- */
 
 export function Notifications() {
-  const notes = useLoad(get('/notifications'));
+  const notes = useLoad(get<Notification[]>('/notifications'));
   return (
     <>
       <PageHead title="Thông báo">
@@ -425,7 +440,7 @@ export function Notifications() {
 }
 
 export function Profile() {
-  const me = useLoad(get('/auth/me'));
+  const me = useLoad(get<Customer>('/auth/me'));
   return (
     <>
       <PageHead title="Hồ sơ" />

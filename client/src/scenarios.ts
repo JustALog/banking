@@ -1,35 +1,48 @@
-import { api, waitForTransfer } from './api.js';
+import { api, waitForTransfer } from './gateway';
+import type { TransferPoll } from './gateway';
+import type { Account, LoginResponse, Transfer } from './types';
+
+export interface Outcome {
+  pass: boolean;
+  actual: string;
+}
+
+export interface Scenario {
+  name: string;
+  expected: string;
+  run: () => Promise<Outcome>;
+}
 
 const IDEMPOTENCY = 'Idempotency-Key';
 const AMOUNT_OVER_FRAUD_LIMIT = 5000001; // banking.fraud.amount-threshold is 5,000,000
 const VELOCITY_MAX = 5; // banking.fraud.velocity-max-transfers
 
-const post = (source, dest, amount, key) => api('POST', '/transfers', {
+const post = (source: string, dest: string, amount: number, key?: string) => api<Transfer>('POST', '/transfers', {
   body: { sourceAccountId: source, destAccountId: dest, amount, currency: 'VND' },
   headers: key ? { [IDEMPOTENCY]: key } : {},
 });
 
-async function open() {
-  const r = await api('POST', '/accounts', { body: { currency: 'VND' } });
+async function open(): Promise<string> {
+  const r = await api<Account>('POST', '/accounts', { body: { currency: 'VND' } });
   if (r.status !== 201) throw new Error(`Không mở được tài khoản (HTTP ${r.status})`);
   return r.data.id;
 }
 
 // New empty accounts keep each scenario independent of balances and of the per-account velocity window.
-const pair = async () => [await open(), await open()];
+const pair = async (): Promise<[string, string]> => [await open(), await open()];
 
-async function transferOutcome(source, dest, amount) {
+async function transferOutcome(source: string, dest: string, amount: number): Promise<TransferPoll | null> {
   const r = await post(source, dest, amount, crypto.randomUUID());
   if (r.status !== 202) throw new Error(`POST /transfers trả HTTP ${r.status}`);
   return waitForTransfer(r.data.id);
 }
 
-const failedWith = (t, reason) => ({
+const failedWith = (t: TransferPoll | null, reason: string): Outcome => ({
   pass: t?.status === 'FAILED' && t.failureReason === reason,
   actual: `${t?.status ?? 'không có kết quả'} / ${t?.failureReason ?? '-'}`,
 });
 
-export const scenarios = [
+export const scenarios: Scenario[] = [
   {
     name: 'Gọi API không có JWT',
     expected: 'Gateway trả HTTP 401',
@@ -45,11 +58,11 @@ export const scenarios = [
       const email = `scenario-${crypto.randomUUID()}@test.local`;
       const password = 'scenario-password';
       await api('POST', '/auth/register', { auth: false, body: { email, password, fullName: 'Scenario user' } });
-      const login = await api('POST', '/auth/login', { auth: false, body: { email, password } });
+      const login = await api<LoginResponse>('POST', '/auth/login', { auth: false, body: { email, password } });
       if (login.status !== 200) throw new Error(`Không đăng nhập được người dùng thử (HTTP ${login.status})`);
       // Fresh USER token instead of the signed-in one, which may be an admin.
       const headers = { Authorization: `Bearer ${login.data.accessToken}` };
-      const codes = [];
+      const codes: number[] = [];
       for (const path of ['/auth/admin/customers', '/accounts/admin', '/transfers/admin']) {
         codes.push((await api('GET', path, { auth: false, headers })).status);
       }
@@ -108,7 +121,7 @@ export const scenarios = [
     expected: `Lệnh thứ ${VELOCITY_MAX + 1} trong 60 giây kết thúc FAILED / FRAUD_REJECTED`,
     async run() {
       const [source, dest] = await pair();
-      let last;
+      let last: TransferPoll | null = null;
       // Sequential on purpose: fraud-service counts earlier evaluations for this account.
       for (let i = 0; i <= VELOCITY_MAX; i += 1) last = await transferOutcome(source, dest, 1000);
       return failedWith(last, 'FRAUD_REJECTED');

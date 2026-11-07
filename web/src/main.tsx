@@ -1,13 +1,16 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
-import { AppShell, RequireRole } from './components.jsx';
-import { Landing, Login, NotFound, Register } from './pages/public.jsx';
-import { AccountDetail, Accounts, Dashboard, Notifications, Profile, TransactionDetail, Transactions, Transfer } from './pages/user.jsx';
-import { AdminAccounts, AdminCustomers, AdminTransfers } from './pages/admin.jsx';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { AppShell, RequireRole } from './components';
+import { Landing, Login, NotFound, Register } from './pages/public';
+import { AccountDetail, Accounts, Dashboard, Notifications, Profile, TransactionDetail, Transactions, Transfer } from './pages/user';
+import { AdminAccounts, AdminCustomers, AdminTransfers } from './pages/admin';
 import './styles.css';
 
-createRoot(document.getElementById('root')).render(
+const root = document.getElementById('root');
+if (!root) throw new Error('index.html is missing <div id="root">');
+
+createRoot(root).render(
   <StrictMode>
     <BrowserRouter>
       <Routes>

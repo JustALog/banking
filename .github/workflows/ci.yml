@@ -1,0 +1,158 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # Both TypeScript frontends must install, type-check, test, build and serve on every supported Node line, oldest (14) first.
+  frontend:
+    name: ${{ matrix.app }} · node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [web, client]
+        node: ['14.18.0', '14.x', '16.x', '18.x', '20.x', '22.x']
+    defaults:
+      run:
+        working-directory: ${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: ${{ matrix.app }}/package-lock.json
+      - run: node --version && npm --version
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Smoke test the production build (vite preview)
+        run: |
+          npx vite preview --port 4173 --strictPort > preview.log 2>&1 &
+          for _ in $(seq 30); do curl -sf http://localhost:4173/ > /dev/null && break; sleep 1; done
+          curl -sf http://localhost:4173/ | grep -q '<div id="' || { cat preview.log; exit 1; }
+          # web is an SPA: deep links must fall back to index.html
+          if [ "${{ matrix.app }}" = web ]; then curl -sf http://localhost:4173/app/transfer | grep -q 'id="root"'; fi
+      - if: matrix.node == '14.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.app }}-dist
+          path: ${{ matrix.app }}/dist
+          retention-days: 7
+
+  backend:
+    name: server · maven verify (JDK 21)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      # The gateway context test loads the RS256 public key; keys are gitignored, so make a throwaway pair.
+      - run: bash docker/keys/generate-keys.sh
+      - run: mvn -B -ntp verify
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: server/*/target/surefire-reports
+          retention-days: 7
+
+  helm:
+    name: helm lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - run: helm lint server/k8s/helm/banking
+      - run: helm lint server/k8s/helm/banking -f server/k8s/values/banking-demo.yaml
+
+  # Builds every deployable image on each run; pushes to GHCR only from main or a v* tag.
+  images:
+    name: image · ${{ matrix.image }}
+    needs: [frontend, backend, helm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {image: web, context: web, file: web/Dockerfile, module: ''}
+          - {image: auth-service, context: server, file: server/Dockerfile, module: auth-service}
+          - {image: ledger-service, context: server, file: server/Dockerfile, module: ledger-service}
+          - {image: transfer-service, context: server, file: server/Dockerfile, module: transfer-service}
+          - {image: fraud-service, context: server, file: server/Dockerfile, module: fraud-service}
+          - {image: notification-service, context: server, file: server/Dockerfile, module: notification-service}
+          - {image: gateway-service, context: server, file: server/Dockerfile, module: gateway-service}
+    env:
+      PUBLISH: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/banking/${{ matrix.image }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          build-args: ${{ matrix.module && format('MODULE={0}', matrix.module) || '' }}
+          load: true
+          tags: banking/${{ matrix.image }}:ci
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+      - name: Smoke test the web image (nginx + SPA fallback + gateway proxy)
+        if: matrix.image == 'web'
+        run: |
+          docker run -d --name web -p 8088:80 -e GATEWAY_URL=http://127.0.0.1:9 banking/web:ci
+          for _ in $(seq 30); do curl -sf http://localhost:8088/healthz > /dev/null && break; sleep 1; done
+          curl -sf http://localhost:8088/ | grep -q 'id="root"'
+          curl -sf http://localhost:8088/app/transfer | grep -q 'id="root"'
+          # API prefixes are proxied, not served as the SPA: with no gateway behind it nginx answers 502.
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8088/auth/login)" = 502
+          docker logs web
+      - if: env.PUBLISH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push
+        if: env.PUBLISH == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          build-args: ${{ matrix.module && format('MODULE={0}', matrix.module) || '' }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}

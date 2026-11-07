@@ -1,37 +1,66 @@
-import { api, errorText, hooks, log, setToken, waitForTransfer } from './gateway.js';
-import { scenarios } from './scenarios.js';
+import { api, errorText, hooks, log, setToken, waitForTransfer } from './gateway';
+import { scenarios } from './scenarios';
+import type { Outcome, Scenario } from './scenarios';
+import type { Account, Customer, LedgerEntry, LoginResponse, Notification, Role, Transfer } from './types';
 
-const app = document.getElementById('app');
-const state = { customer: null, tab: 'accounts', results: {}, running: false };
+const appRoot = document.getElementById('app');
+if (!appRoot) throw new Error('index.html is missing <div id="app">');
+const app: HTMLElement = appRoot;
 
-function el(tag, props = {}, ...children) {
+type TabId = 'accounts' | 'transfers' | 'notifications' | 'scenarios' | 'adminCustomers' | 'adminAccounts' | 'adminTransfers';
+type ScenarioState = Outcome | { running: true };
+
+interface State {
+  customer: Customer | null;
+  tab: TabId;
+  results: Record<string, ScenarioState>;
+  running: boolean;
+}
+
+const state: State = { customer: null, tab: 'accounts', results: {}, running: false };
+
+/** Attributes, `value`, or `on<event>` listeners. true → empty attribute; false/null/undefined → omitted. */
+type Props = Record<string, unknown>;
+type Child = Node | string | null | undefined;
+
+function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Props = {}, ...children: Array<Child | Child[]>): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(props)) {
-    if (k.startsWith('on')) node.addEventListener(k.slice(2), v);
-    else if (k === 'value') node.value = v;
+    if (k.startsWith('on')) node.addEventListener(k.slice(2), v as EventListener);
+    else if (k === 'value') (node as HTMLInputElement).value = String(v);
     else if (v === true) node.setAttribute(k, '');
-    else if (v !== false && v != null) node.setAttribute(k, v);
+    else if (v !== false && v != null) node.setAttribute(k, String(v));
   }
-  node.append(...children.flat().filter((c) => c != null));
+  node.append(...children.flat().filter((c): c is Node | string => c != null));
   return node;
 }
 
-const money = (n, currency = '') => `${Number(n).toLocaleString('vi-VN')} ${currency}`.trim();
-const time = (iso) => new Date(iso).toLocaleString('vi-VN');
+const money = (n: number | string, currency = '') => `${Number(n).toLocaleString('vi-VN')} ${currency}`.trim();
+const time = (iso: string) => new Date(iso).toLocaleString('vi-VN');
 const message = () => el('p', { class: 'msg', role: 'status' });
-const say = (node, text, cls = '') => { node.textContent = text; node.className = `msg ${cls}`; };
-const field = (label, input) => el('label', {}, label, input);
+const say = (node: HTMLElement, text: string, cls = '') => { node.textContent = text; node.className = `msg ${cls}`; };
+const field = (label: string, input: Node) => el('label', {}, label, input);
 
-function table(headers, rows, empty) {
+/** A form's values by input name (these forms only have text-like inputs). */
+function formFields(form: HTMLFormElement): Record<string, string> {
+  const fields: Record<string, string> = {};
+  new FormData(form).forEach((value, name) => { fields[name] = String(value); });
+  return fields;
+}
+
+/** A table cell: text, any node (wrapped in <td>), or a ready-made <td>. */
+type Cell = Node | string;
+
+function table(headers: string[], rows: Cell[][], empty: string): HTMLElement {
   if (!rows.length) return el('p', { class: 'muted' }, empty);
   return el('div', { class: 'table' }, el('table', {},
     el('thead', {}, el('tr', {}, headers.map((h) => el('th', { scope: 'col' }, h)))),
-    el('tbody', {}, rows.map((cells) => el('tr', {}, cells.map((c) => (c?.tagName === 'TD' ? c : el('td', {}, c))))))));
+    el('tbody', {}, rows.map((cells) => el('tr', {}, cells.map((c) => (c instanceof HTMLTableCellElement && c.tagName === 'TD' ? c : el('td', {}, c))))))));
 }
 
 // Runs an async button action without allowing a second click while it is in flight.
-function busy(button, fn) {
-  return async (event) => {
+function busy(button: HTMLButtonElement, fn: () => Promise<unknown>) {
+  return async (event?: Event) => {
     event?.preventDefault();
     button.disabled = true;
     try { await fn(); } finally { button.disabled = false; }
@@ -45,8 +74,8 @@ function authView() {
   const regMsg = message();
 
   const email = () => el('input', { type: 'email', name: 'email', required: true, autocomplete: 'username' });
-  const signIn = async (credentials, msg) => {
-    const r = await api('POST', '/auth/login', { body: credentials });
+  const signIn = async (credentials: { email: string; password: string }, msg: HTMLElement) => {
+    const r = await api<LoginResponse>('POST', '/auth/login', { body: credentials });
     if (r.status !== 200) return say(msg, errorText(r), 'fail');
     setToken(r.data.accessToken);
     state.customer = r.data.customer;
@@ -60,7 +89,8 @@ function authView() {
     el('div', {}, loginBtn), loginMsg);
   loginForm.addEventListener('submit', busy(loginBtn, () => {
     say(loginMsg, '');
-    return signIn(Object.fromEntries(new FormData(loginForm)), loginMsg);
+    const { email: user, password } = formFields(loginForm);
+    return signIn({ email: user, password }, loginMsg);
   }));
 
   const regBtn = el('button', { type: 'submit' }, 'Đăng ký và đăng nhập');
@@ -71,8 +101,8 @@ function authView() {
     el('div', {}, regBtn), regMsg);
   regForm.addEventListener('submit', busy(regBtn, async () => {
     say(regMsg, '');
-    const data = Object.fromEntries(new FormData(regForm));
-    const r = await api('POST', '/auth/register', { body: data });
+    const data = formFields(regForm);
+    const r = await api<Customer>('POST', '/auth/register', { body: data });
     if (r.status !== 201) return say(regMsg, errorText(r), 'fail');
     return signIn({ email: data.email, password: data.password }, regMsg);
   }));
@@ -87,7 +117,7 @@ function authView() {
 
 /* ---------- Accounts ---------- */
 
-const seedCommand = (id) => `cd server && docker compose -f docker/docker-compose.yml exec -T postgres \\
+const seedCommand = (id: string) => `cd server && docker compose -f docker/docker-compose.yml exec -T postgres \\
   psql -U postgres -d ledger_db -c "UPDATE account SET balance = 10000000 WHERE id = '${id}';"`;
 
 function accountsView() {
@@ -95,8 +125,8 @@ function accountsView() {
   const detail = el('div');
   const msg = message();
 
-  async function showEntries(account) {
-    const r = await api('GET', `/accounts/${account.id}/entries`);
+  async function showEntries(account: Account) {
+    const r = await api<LedgerEntry[]>('GET', `/accounts/${account.id}/entries`);
     if (r.status !== 200) return detail.replaceChildren(el('p', { class: 'msg fail' }, errorText(r)));
     return detail.replaceChildren(el('section', {},
       el('h3', {}, `Bút toán của ${account.accountNo}`),
@@ -109,7 +139,7 @@ function accountsView() {
   }
 
   async function load() {
-    const r = await api('GET', '/accounts');
+    const r = await api<Account[]>('GET', '/accounts');
     if (r.status !== 200) return list.replaceChildren(el('p', { class: 'msg fail' }, errorText(r)));
     return list.replaceChildren(table(['Số tài khoản', 'Số dư', 'Mã tài khoản', ''],
       r.data.map((a) => {
@@ -126,7 +156,7 @@ function accountsView() {
   const form = el('form', {}, el('div', { class: 'row' }, currency, openBtn), msg);
   form.addEventListener('submit', busy(openBtn, async () => {
     say(msg, '');
-    const r = await api('POST', '/accounts', { body: { currency: currency.value } });
+    const r = await api<Account>('POST', '/accounts', { body: { currency: currency.value } });
     if (r.status !== 201) return say(msg, errorText(r), 'fail');
     say(msg, `Đã mở tài khoản ${r.data.accountNo}.`, 'pass');
     return load();
@@ -145,7 +175,7 @@ function accountsView() {
 
 /* ---------- Transfers ---------- */
 
-function statusCell(t) {
+function statusCell(t: Transfer) {
   return el('span', { class: `status ${t.status}` }, t.failureReason ? `${t.status} / ${t.failureReason}` : t.status);
 }
 
@@ -157,10 +187,10 @@ function transfersView() {
   const dest = el('input', { name: 'dest', required: true, list: 'own-accounts', placeholder: 'Mã tài khoản (UUID)' });
   const amount = el('input', { name: 'amount', type: 'number', min: 1, step: 1, max: Number.MAX_SAFE_INTEGER, required: true, value: '250000' });
   const key = el('input', { name: 'key', required: true, value: crypto.randomUUID() });
-  let accounts = [];
+  let accounts: Account[] = [];
 
   async function loadAccounts() {
-    const r = await api('GET', '/accounts');
+    const r = await api<Account[]>('GET', '/accounts');
     if (r.status !== 200) return say(msg, errorText(r), 'fail');
     accounts = r.data;
     source.replaceChildren(...accounts.map((a) => el('option', { value: a.id }, `${a.accountNo}: ${money(a.balance, a.currency)}`)));
@@ -169,7 +199,7 @@ function transfersView() {
   }
 
   async function loadList() {
-    const r = await api('GET', '/transfers');
+    const r = await api<Transfer[]>('GET', '/transfers');
     if (r.status !== 200) return list.replaceChildren(el('p', { class: 'msg fail' }, errorText(r)));
     return list.replaceChildren(table(['Thời gian', 'Số tiền', 'Trạng thái', 'Mã giao dịch'],
       r.data.map((t) => [time(t.createdAt), el('td', { class: 'num' }, money(t.amount, t.currency)), statusCell(t), el('span', { class: 'id' }, t.id)]),
@@ -188,7 +218,7 @@ function transfersView() {
     say(msg, '');
     const from = accounts.find((a) => a.id === source.value);
     if (!from) return say(msg, 'Hãy mở tài khoản trước khi chuyển tiền.', 'fail');
-    const r = await api('POST', '/transfers', {
+    const r = await api<Transfer>('POST', '/transfers', {
       body: { sourceAccountId: from.id, destAccountId: dest.value.trim(), amount: Number(amount.value), currency: from.currency },
       headers: { 'Idempotency-Key': key.value },
     });
@@ -224,7 +254,7 @@ function transfersView() {
 function notificationsView() {
   const list = el('div');
   async function load() {
-    const r = await api('GET', '/notifications');
+    const r = await api<Notification[]>('GET', '/notifications');
     if (r.status !== 200) return list.replaceChildren(el('p', { class: 'msg fail' }, errorText(r)));
     return list.replaceChildren(table(['Thời gian', 'Tiêu đề', 'Nội dung', 'Kênh'],
       r.data.map((n) => [time(n.createdAt), n.title, n.content, n.channel]),
@@ -249,18 +279,18 @@ function scenariosView() {
   const body = el('tbody');
   const runAll = el('button', { type: 'button' }, 'Chạy tất cả');
 
-  async function run(s) {
+  async function run(s: Scenario) {
     state.results[s.name] = { running: true };
     paint();
     try {
       state.results[s.name] = await s.run();
     } catch (e) {
-      state.results[s.name] = { pass: false, actual: e.message };
+      state.results[s.name] = { pass: false, actual: e instanceof Error ? e.message : String(e) };
     }
     paint();
   }
 
-  async function guarded(list) {
+  async function guarded(list: Scenario[]) {
     state.running = true;
     paint();
     try {
@@ -276,7 +306,7 @@ function scenariosView() {
     body.replaceChildren(...scenarios.map((s) => {
       const res = state.results[s.name];
       let outcome = el('span', { class: 'muted' }, 'Chưa chạy');
-      if (res?.running) outcome = el('span', { class: 'status running' }, 'Đang chạy...');
+      if (res && 'running' in res) outcome = el('span', { class: 'status running' }, 'Đang chạy...');
       else if (res) {
         outcome = el('span', {},
           el('span', { class: `status ${res.pass ? 'pass' : 'fail'}` }, res.pass ? 'Đạt' : 'Không đạt'),
@@ -308,7 +338,7 @@ function scenariosView() {
 
 /* ---------- Admin (ROLE_ADMIN; the services enforce it, the tabs are only hidden) ---------- */
 
-const reloadHeader = (title, load) => {
+const reloadHeader = (title: string, load: () => Promise<unknown>) => {
   const reload = el('button', { class: 'quiet', type: 'button' }, 'Tải lại');
   reload.addEventListener('click', busy(reload, load));
   return el('div', { class: 'row', style: 'justify-content:space-between;margin-bottom:16px' }, el('h2', { style: 'margin:0' }, title), reload);
@@ -318,14 +348,14 @@ function adminCustomersView() {
   const list = el('div');
   const msg = message();
   async function load() {
-    const r = await api('GET', '/auth/admin/customers');
+    const r = await api<Customer[]>('GET', '/auth/admin/customers');
     if (r.status !== 200) return list.replaceChildren(el('p', { class: 'msg fail' }, errorText(r)));
     return list.replaceChildren(table(['Họ tên', 'Email', 'Vai trò', 'Trạng thái', 'Ngày tạo', ''],
       r.data.map((c) => {
         const locked = c.status === 'LOCKED';
-        const toggle = el('button', { class: 'quiet', type: 'button', disabled: c.id === state.customer.id }, locked ? 'Mở khoá' : 'Khoá');
+        const toggle = el('button', { class: 'quiet', type: 'button', disabled: c.id === state.customer?.id }, locked ? 'Mở khoá' : 'Khoá');
         toggle.addEventListener('click', busy(toggle, async () => {
-          const res = await api('POST', `/auth/admin/customers/${c.id}/${locked ? 'unlock' : 'lock'}`);
+          const res = await api<Customer>('POST', `/auth/admin/customers/${c.id}/${locked ? 'unlock' : 'lock'}`);
           if (res.status !== 200) return say(msg, errorText(res), 'fail');
           say(msg, `${c.email}: ${res.data.status}`, 'pass');
           return load();
@@ -345,7 +375,7 @@ function adminAccountsView() {
   const list = el('div');
   const msg = message();
   async function load() {
-    const [r, people] = await Promise.all([api('GET', '/accounts/admin'), api('GET', '/auth/admin/customers')]);
+    const [r, people] = await Promise.all([api<Account[]>('GET', '/accounts/admin'), api<Customer[]>('GET', '/auth/admin/customers')]);
     if (r.status !== 200) return list.replaceChildren(el('p', { class: 'msg fail' }, errorText(r)));
     const owner = new Map((people.status === 200 ? people.data : []).map((c) => [c.id, c.email]));
     return list.replaceChildren(table(['Số tài khoản', 'Chủ tài khoản', 'Số dư', 'Nạp tiền'],
@@ -355,7 +385,7 @@ function adminAccountsView() {
         const go = el('button', { type: 'submit' }, 'Nạp');
         const form = el('form', { class: 'row' }, amount, go);
         form.addEventListener('submit', busy(go, async () => {
-          const res = await api('POST', `/accounts/admin/${a.id}/deposit`, { body: { amount: Number(amount.value) } });
+          const res = await api<Account>('POST', `/accounts/admin/${a.id}/deposit`, { body: { amount: Number(amount.value) } });
           if (res.status !== 200) return say(msg, errorText(res), 'fail');
           say(msg, `Đã nạp ${money(amount.value, a.currency)} vào ${a.accountNo}. Số dư mới ${money(res.data.balance, a.currency)}.`, 'pass');
           return load();
@@ -375,7 +405,7 @@ function adminAccountsView() {
 function adminTransfersView() {
   const list = el('div');
   async function load() {
-    const r = await api('GET', '/transfers/admin');
+    const r = await api<Transfer[]>('GET', '/transfers/admin');
     if (r.status !== 200) return list.replaceChildren(el('p', { class: 'msg fail' }, errorText(r)));
     return list.replaceChildren(table(['Thời gian', 'Từ', 'Đến', 'Số tiền', 'Trạng thái', 'Mã giao dịch'],
       r.data.map((t) => [time(t.createdAt), el('span', { class: 'id' }, t.sourceAccountId), el('span', { class: 'id' }, t.destAccountId),
@@ -392,7 +422,7 @@ function adminTransfersView() {
 /* ---------- Shell ---------- */
 
 // [label, view, roles allowed]
-const TABS = {
+const TABS: Record<TabId, [label: string, view: () => HTMLElement, roles: Role[]]> = {
   accounts: ['Tài khoản', accountsView, ['USER', 'ADMIN']],
   transfers: ['Chuyển tiền', transfersView, ['USER', 'ADMIN']],
   notifications: ['Thông báo', notificationsView, ['USER', 'ADMIN']],
@@ -429,7 +459,8 @@ function render() {
     app.replaceChildren(el('div', { class: 'layout', style: 'min-height:100vh' }, authView(), logPanel));
     return;
   }
-  const allowed = Object.entries(TABS).filter(([, [, , roles]]) => roles.includes(state.customer.role));
+  const { customer } = state;
+  const allowed = (Object.entries(TABS) as Array<[TabId, (typeof TABS)[TabId]]>).filter(([, [, , roles]]) => roles.includes(customer.role));
   if (!allowed.some(([id]) => id === state.tab)) state.tab = allowed[0][0];
   const tabs = allowed.map(([id, [label]]) => el('button', {
     type: 'button',
@@ -438,7 +469,7 @@ function render() {
   }, label));
   app.replaceChildren(
     el('nav', { 'aria-label': 'Chính' }, el('strong', {}, 'Banking'), tabs,
-      el('span', { class: 'who' }, `${state.customer.fullName} (${state.customer.email}) · ${state.customer.role}`),
+      el('span', { class: 'who' }, `${customer.fullName} (${customer.email}) · ${customer.role}`),
       el('button', { type: 'button', onclick: logout }, 'Đăng xuất')),
     el('div', { class: 'layout' }, el('main', {}, TABS[state.tab][1]()), logPanel));
 }
