@@ -158,6 +158,7 @@ services:
       SERVER_PORT: "8081"
       BANKING_DB_URL: jdbc:postgresql://postgres:5432/customer_db
       BANKING_JWT_PRIVATE_KEY: file:/keys/jwt-private.pem
+      BANKING_SEED_DEMO_ACCOUNTS: ${BANKING_SEED_DEMO_ACCOUNTS:-false}   # demo.sh sets true
 
   ledger-service:
     <<: *service

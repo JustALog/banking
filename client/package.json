@@ -4,9 +4,17 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "TZ=Asia/Ho_Chi_Minh node --test src/*.test.js"
+  },
+  "dependencies": {
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "react-router": "7.9.4"
   },
   "devDependencies": {
-    "vite": "^8.3.5"
+    "@vitejs/plugin-react": "6.2.1",
+    "vite": "8.3.5"
   }
 }
