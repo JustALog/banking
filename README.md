@@ -1,5 +1,7 @@
 # Banking Platform — Core Platform, Services & Kubernetes (Round 3)
 
+**English** · [Tiếng Việt](README.vi.md)
+
 Distributed banking & payment platform per `Architect_diagram.drawio`.
 - **Round 1**: Core money-movement path: Auth/Customer → Transfer (saga + outbox + Debezium CDC) → Fraud (stub) → Ledger (sole balance owner) → Partner Bank call (Resilience4j).
 - **Round 2**: **API Gateway** (Spring Cloud Gateway, JWT verification, Idempotency-Key enforcement), **Notification Service** (`notify_db`, consumes completed/failed events, mocks Email/SMS), **Fraud Service with persistence & real velocity rules** (`fraud_db`), and **Ledger Reversal Compensation** for partner bank failures after posting.
@@ -67,7 +69,20 @@ cd server
 bash scripts/demo.sh        # keys → docker compose up --build --wait → Debezium connector → smoke test
 ```
 
-First run builds 6 images (several minutes); later runs reuse them. Useful extras:
+First run builds 6 images (several minutes); later runs reuse them. `bash scripts/demo.sh --fast` skips the build and the smoke test, and is the quickest way to bring the stack back up.
+
+### Test accounts
+
+`demo.sh` prints the result of logging in as each account below.
+
+| Account | Role | How it is created |
+|---|---|---|
+| `admin@banking.local` / `admin12345` | `ROLE_ADMIN` | `AdminBootstrap` in auth-service, from `BANKING_ADMIN_EMAIL` / `BANKING_ADMIN_PASSWORD` in docker compose. Unset means no admin is created. |
+| `customer@banking.local` / `Customer12345` | `ROLE_USER` | `demo.sh` registers it through `POST /auth/register` (skipped if it already exists). |
+
+`/auth/register` always creates a `USER`; only `AdminBootstrap` can create an admin. These credentials are for local demos only, so do not reuse them anywhere real.
+
+Useful extras:
 
 ```bash
 docker stats --no-stream                                            # per-container memory
