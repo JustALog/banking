@@ -3,12 +3,14 @@ package vn.banking.auth.web;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import vn.banking.auth.customer.Customer;
@@ -27,8 +29,8 @@ public class AdminController {
     }
 
     @GetMapping
-    public List<CustomerResponse> list() {
-        return customerService.listAll().stream().map(CustomerResponse::from).toList();
+    public List<CustomerResponse> list(@RequestParam(required = false) String q, Pageable pageable) {
+        return customerService.listAll(q, pageable).stream().map(CustomerResponse::from).toList();
     }
 
     @PostMapping("/{id}/lock")

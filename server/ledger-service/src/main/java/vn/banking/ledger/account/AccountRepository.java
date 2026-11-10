@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -18,7 +19,9 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
 
     List<Account> findByCustomerIdOrderByCreatedAt(UUID customerId);
 
-    List<Account> findTop200ByOrderByCreatedAtDesc();
+    List<Account> findAllByOrderByCreatedAtDesc(Pageable pageable);
+
+    List<Account> findByAccountNoContainingIgnoreCaseOrderByCreatedAtDesc(String accountNo, Pageable pageable);
 
     Optional<Account> findByAccountNo(String accountNo);
 

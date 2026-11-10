@@ -3,12 +3,14 @@ package vn.banking.ledger.web;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.validation.Valid;
@@ -28,8 +30,8 @@ public class AdminAccountController {
     }
 
     @GetMapping
-    public List<AccountResponse> all() {
-        return accountService.listAll().stream().map(AccountResponse::from).toList();
+    public List<AccountResponse> all(@RequestParam(required = false) String q, Pageable pageable) {
+        return accountService.listAll(q, pageable).stream().map(AccountResponse::from).toList();
     }
 
     @PostMapping("/{id}/deposit")

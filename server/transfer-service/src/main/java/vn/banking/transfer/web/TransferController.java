@@ -2,6 +2,7 @@ package vn.banking.transfer.web;
 
 import java.util.List;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -72,17 +73,17 @@ public class TransferController {
     }
 
     @GetMapping
-    public List<TransferResponse> myTransfers(Authentication authentication) {
+    public List<TransferResponse> myTransfers(Authentication authentication, Pageable pageable) {
         UUID me = currentCustomer(authentication);
-        return saga.listFor(me).stream()
+        return saga.listFor(me, pageable).stream()
                 .map(t -> TransferResponse.from(t, me))
                 .toList();
     }
 
     /** ROLE_ADMIN only (enforced in SecurityConfig). */
     @GetMapping("/admin")
-    public List<TransferResponse> allTransfers() {
-        return saga.listAll().stream().map(t -> TransferResponse.from(t, null)).toList();
+    public List<TransferResponse> allTransfers(Pageable pageable) {
+        return saga.listAll(pageable).stream().map(t -> TransferResponse.from(t, null)).toList();
     }
 
     static UUID currentCustomer(Authentication authentication) {
