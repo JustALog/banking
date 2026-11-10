@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.util.Optional;
@@ -26,6 +27,27 @@ class AccountServiceTest {
 
     @Mock
     LedgerEntryRepository entries;
+
+    @Test
+    void firstAccountOpens() {
+        UUID customer = UUID.randomUUID();
+        when(accounts.countByCustomerId(customer)).thenReturn(0L);
+        when(accounts.existsByAccountNo(any())).thenReturn(false);
+
+        new AccountService(accounts, entries).openAccount(customer, "VND");
+
+        verify(accounts).save(any(Account.class));
+    }
+
+    @Test
+    void eleventhAccountRejected() {
+        UUID customer = UUID.randomUUID();
+        when(accounts.countByCustomerId(customer)).thenReturn(10L);
+
+        assertThatThrownBy(() -> new AccountService(accounts, entries).openAccount(customer, "VND"))
+                .isInstanceOf(AccountService.AccountLimitException.class);
+        verify(accounts, never()).save(any());
+    }
 
     @Test
     void firstDepositCredits() {

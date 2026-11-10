@@ -31,6 +31,7 @@ export const REASONS: Record<string, string> = {
   SELF_TRANSFER_NOT_ALLOWED: 'Không thể chuyển vào chính tài khoản nguồn.',
   PARTNER_TIMEOUT: 'Ngân hàng đối tác không phản hồi kịp. Tiền đã được hoàn lại tài khoản nguồn.',
   PARTNER_FAILED: 'Ngân hàng đối tác từ chối giao dịch. Tiền đã được hoàn lại tài khoản nguồn.',
+  ACCOUNT_LIMIT_REACHED: 'Bạn đã có tối đa 10 tài khoản.',
 };
 
 export const reasonText = (code?: string | null) => (code ? REASONS[code] ?? code : '');

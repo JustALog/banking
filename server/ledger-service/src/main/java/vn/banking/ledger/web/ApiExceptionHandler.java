@@ -22,6 +22,13 @@ public class ApiExceptionHandler {
         return d;
     }
 
+    @ExceptionHandler(AccountService.AccountLimitException.class)
+    ProblemDetail limitReached(AccountService.AccountLimitException e) {
+        ProblemDetail d = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+        d.setProperty("code", "ACCOUNT_LIMIT_REACHED");
+        return d;
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ProblemDetail validation(MethodArgumentNotValidException e) {
         ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Request validation failed");
