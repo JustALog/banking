@@ -8,6 +8,7 @@ const proxy = Object.fromEntries(['/auth', '/accounts', '/transfers', '/notifica
 
 export default defineConfig({
   plugins: [react()],
+  build: { sourcemap: false }, // keep original src unreadable in devtools; the bundle is minified only
   server: { port: 5173, proxy },
   preview: { port: 5173, proxy },
 });
