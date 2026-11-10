@@ -121,7 +121,7 @@ export function AdminAccounts() {
   const customers = useLoad(get<Customer[]>('/auth/admin/customers'));
   const [q, setQ] = useState('');
   const [toast, notify] = useToast();
-  const [pending, setPending] = useState<{ account: Account; value: number; clear: () => void } | null>(null);
+  const [pending, setPending] = useState<{ account: Account; value: number; clear: () => void; key: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const owner = new Map((customers.data ?? []).map((c) => [c.id, c]));
 
@@ -130,7 +130,7 @@ export function AdminAccounts() {
     const { account, value, clear } = pending;
     setBusy(true);
     try {
-      const { data } = await api<Account>('POST', `/accounts/admin/${account.id}/deposit`, { body: { amount: value } });
+      const { data } = await api<Account>('POST', `/accounts/admin/${account.id}/deposit`, { body: { amount: value }, headers: { 'Idempotency-Key': pending.key } });
       clear();
       notify({ tone: 'ok', text: `Đã nạp ${money(value, account.currency)} vào ${formatAccountNo(account.accountNo)}. Số dư mới ${money(data.balance, account.currency)}.` });
       accounts.reload();
@@ -165,7 +165,7 @@ export function AdminAccounts() {
                         <td><span className="acct">{formatAccountNo(a.accountNo)}</span><br /><span className="hint">Mở {date(a.createdAt)}</span></td>
                         <td className="break">{owner.get(a.customerId)?.email ?? <span className="acct">{shortId(a.customerId)}</span>}</td>
                         <td className="num"><Amount value={a.balance} currency={a.currency} /></td>
-                        <td><DepositForm account={a} onAsk={(account, value, clear) => setPending({ account, value, clear })} /></td>
+                        <td><DepositForm account={a} onAsk={(account, value, clear) => setPending({ account, value, clear, key: crypto.randomUUID() })} /></td>
                       </tr>
                     ))}
                   </tbody>
