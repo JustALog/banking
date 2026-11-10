@@ -19,6 +19,11 @@ public class CustomerService {
 
     @Transactional
     public Customer register(String email, String password, String fullName) {
+        return register(email, password, fullName, Customer.Role.USER);
+    }
+
+    @Transactional
+    public Customer register(String email, String password, String fullName, Customer.Role role) {
         String normalizedEmail = email.trim().toLowerCase();
         if (repository.existsByEmailIgnoreCase(normalizedEmail)) {
             throw new DuplicateEmailException(normalizedEmail);
@@ -27,6 +32,7 @@ public class CustomerService {
         customer.setEmail(normalizedEmail);
         customer.setPasswordHash(passwordEncoder.encode(password));
         customer.setFullName(fullName.trim());
+        customer.setRole(role);
         return repository.save(customer);
     }
 

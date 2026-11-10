@@ -19,3 +19,7 @@ Thumbs.db
 # Local portable runtime (downloaded binaries, not part of the repo)
 server/local-run/
 .*/
+# ...except CI workflows
+!.github/
+.github/*
+!.github/workflows/
