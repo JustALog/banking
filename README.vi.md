@@ -1,12 +1,12 @@
-# Banking Platform — Nền tảng lõi, các Service & Kubernetes (Round 3)
+# Banking Platform
 
 [English](README.md) · **Tiếng Việt**
 
-Nền tảng ngân hàng và thanh toán phân tán theo `Architect_diagram.drawio`.
-- **Round 1**: Luồng chuyển tiền lõi: Auth/Customer → Transfer (saga + outbox + Debezium CDC) → Fraud (stub) → Ledger (chủ sở hữu duy nhất của số dư) → gọi Partner Bank (Resilience4j).
-- **Round 2**: **API Gateway** (Spring Cloud Gateway, xác thực JWT, bắt buộc Idempotency-Key), **Notification Service** (`notify_db`, nhận sự kiện hoàn tất/thất bại, giả lập Email/SMS), **Fraud Service có lưu trữ và luật velocity thật** (`fraud_db`), và **bù trừ hoàn tác Ledger** khi ngân hàng đối tác lỗi sau khi đã ghi sổ.
-- **Round 3**: **Kubernetes** (kind, Helm, Kafka KRaft 3 broker bằng Strimzi, CloudNativePG primary + standby, NGINX Ingress, HPA/PDB/NetworkPolicy), **Backup** (Barman Cloud plugin → S3, hằng ngày + WAL liên tục, PITR), **Quan sát** (kube-prometheus-stack + dashboard Grafana, Fluent Bit → ECK Elasticsearch/Kibana).
-- **Website**: giao diện React 19 + Vite trong `client/` cho khách hàng và quản trị, được nginx phục vụ trong container image.
+Nền tảng ngân hàng và thanh toán phân tán theo `Architect_diagram.drawio`:
+- **Luồng chuyển tiền:** Auth/Customer → Transfer (saga + outbox + Debezium CDC) → Fraud (luật ngưỡng + velocity, có lưu trữ) → Ledger (chủ sở hữu duy nhất của số dư, tự động hoàn tác) → gọi Partner Bank (Resilience4j).
+- **Cổng vào và thông báo:** API Gateway (Spring Cloud Gateway, xác thực JWT, bắt buộc `Idempotency-Key`) và Notification Service (giả lập Email/SMS).
+- **Nền tảng:** Kubernetes (kind, Helm, Kafka KRaft 3 broker bằng Strimzi, CloudNativePG primary + standby, Ingress, HPA/PDB/NetworkPolicy), backup PITR (Barman Cloud → S3), quan sát (Prometheus + Grafana, Fluent Bit → Elasticsearch/Kibana).
+- **Website:** giao diện React 19 + Vite trong `client/` cho khách hàng và quản trị, được nginx phục vụ trong container image.
 
 ## Cấu trúc
 
@@ -231,7 +231,3 @@ Khi push lên `main` hoặc tag `v*`, `images` cũng đẩy lên GHCR dưới d�
 nên cụm có thể triển khai bản build của CI bằng
 `--set image.repository=ghcr.io/<owner>/banking --set image.tag=sha-<short>` (package GHCR mặc định là riêng tư:
 hãy công khai chúng hoặc thêm image pull secret). Không có gì được tự động triển khai lên cụm.
-
-## Lộ trình
-
-1. Website là `client/`. Site TypeScript `web/` cũ đã bị xóa.
