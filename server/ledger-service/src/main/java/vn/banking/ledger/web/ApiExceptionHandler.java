@@ -29,6 +29,13 @@ public class ApiExceptionHandler {
         return d;
     }
 
+    @ExceptionHandler(AccountService.DepositReferenceConflictException.class)
+    ProblemDetail depositKeyReused(AccountService.DepositReferenceConflictException e) {
+        ProblemDetail d = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+        d.setProperty("code", "IDEMPOTENCY_KEY_REUSED");
+        return d;
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ProblemDetail validation(MethodArgumentNotValidException e) {
         ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Request validation failed");

@@ -93,6 +93,21 @@ class AccountServiceTest {
     }
 
     @Test
+    void depositKeyUsedByAnotherAccountIsRejected() {
+        Account account = new Account(UUID.randomUUID(), "VN0000000001", "VND");
+        UUID ref = UUID.randomUUID();
+        when(accounts.findByIdForUpdate(account.getId())).thenReturn(Optional.of(account));
+        when(entries.existsByTransferIdAndAccountId(ref, account.getId())).thenReturn(false);
+        when(entries.existsByTransferId(ref)).thenReturn(true);
+
+        assertThatThrownBy(() -> new AccountService(accounts, entries).deposit(account.getId(), 500, ref))
+                .isInstanceOf(AccountService.DepositReferenceConflictException.class);
+
+        assertThat(account.getBalance()).isZero();
+        verify(entries, never()).save(any());
+    }
+
+    @Test
     void listAllPassesPageableAndFiltersByAccountNo() {
         var page = org.springframework.data.domain.PageRequest.of(0, 50);
 
