@@ -54,6 +54,12 @@ public class LoginThrottle {
 
     private void sweep() {
         Instant cutoff = clock.instant().minus(WINDOW);
-        attempts.entrySet().removeIf(e -> e.getValue().isEmpty() || !e.getValue().peekLast().isAfter(cutoff));
+        for (String k : attempts.keySet()) {
+            attempts.computeIfPresent(k, (key, d) -> isStale(d, cutoff) ? null : d);
+        }
+    }
+
+    private static boolean isStale(Deque<Instant> d, Instant cutoff) {
+        return d.isEmpty() || !d.peekLast().isAfter(cutoff);
     }
 }
