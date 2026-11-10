@@ -1,5 +1,6 @@
 package vn.banking.auth.security;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -21,33 +22,44 @@ class LoginThrottleTest {
     };
     private final LoginThrottle throttle = new LoginThrottle(clock);
 
-    private void fail(int n) {
-        for (int i = 0; i < n; i++) throttle.fail("a@b.vn");
+    private boolean attempt(String key) {
+        return throttle.tryAcquire(key);
+    }
+
+    private void attempts(int n) {
+        for (int i = 0; i < n; i++) attempt("a@b.vn");
     }
 
     @Test
     void fifthFailureBlocks() {
-        fail(4);
-        assertFalse(throttle.blocked("a@b.vn"));
-        fail(1);
-        assertTrue(throttle.blocked("a@b.vn"));
-        assertFalse(throttle.blocked("other@b.vn"));
+        attempts(4);
+        assertTrue(attempt("a@b.vn"));
+        assertFalse(attempt("a@b.vn"));
+        assertTrue(attempt("other@b.vn"));
     }
 
     @Test
     void blockExpiresAfter15Minutes() {
-        fail(5);
+        attempts(5);
         now.set(now.get().plus(Duration.ofMinutes(14)));
-        assertTrue(throttle.blocked("a@b.vn"));
+        assertFalse(attempt("a@b.vn"));
         now.set(now.get().plus(Duration.ofMinutes(2)));
-        assertFalse(throttle.blocked("a@b.vn"));
+        assertTrue(attempt("a@b.vn"));
     }
 
     @Test
     void successResets() {
-        fail(4);
+        attempts(4);
         throttle.reset("a@b.vn");
-        fail(4);
-        assertFalse(throttle.blocked("a@b.vn"));
+        attempts(4);
+        assertTrue(attempt("a@b.vn"));
+    }
+
+    @Test
+    void sweepDropsStaleEntries() {
+        attempt("stale@b.vn");
+        now.set(now.get().plus(Duration.ofMinutes(16)));
+        for (int i = 0; i < 1000; i++) attempt("k" + (i % 3));
+        assertEquals(3, throttle.size());
     }
 }

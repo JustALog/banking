@@ -51,16 +51,10 @@ public class AuthController {
     @PostMapping("/login")
     public LoginResponse login(@Valid @RequestBody LoginRequest request) {
         String key = request.email().trim().toLowerCase();
-        if (throttle.blocked(key)) {
+        if (!throttle.tryAcquire(key)) {
             throw new TooManyAttemptsException();
         }
-        Customer customer;
-        try {
-            customer = customerService.authenticate(request.email(), request.password());
-        } catch (CustomerService.BadCredentialsException e) {
-            throttle.fail(key);
-            throw e;
-        }
+        Customer customer = customerService.authenticate(request.email(), request.password());
         throttle.reset(key);
         String token = jwtService.issueToken(customer);
         return new LoginResponse(

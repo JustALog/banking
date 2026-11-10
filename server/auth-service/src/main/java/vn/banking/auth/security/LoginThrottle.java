@@ -6,46 +6,54 @@ import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.springframework.stereotype.Component;
 
 // shortcut: per-replica in-memory counter, move to Redis/gateway RequestRateLimiter when auth runs >1 replica.
+// Per-email key lets a third party lock a victim out for 15 min.
 @Component
 public class LoginThrottle {
 
-    static final int MAX_FAILURES = 5;
+    static final int MAX_ATTEMPTS = 5;
     static final Duration WINDOW = Duration.ofMinutes(15);
+    private static final int SWEEP_EVERY = 1000;
 
     private final Clock clock;
-    private final ConcurrentHashMap<String, Deque<Instant>> failures = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Deque<Instant>> attempts = new ConcurrentHashMap<>();
+    private final AtomicInteger calls = new AtomicInteger();
 
     public LoginThrottle(Clock clock) {
         this.clock = clock;
     }
 
-    public boolean blocked(String email) {
-        Deque<Instant> d = failures.get(email);
-        if (d == null) return false;
-        synchronized (d) {
-            prune(d);
-            return d.size() >= MAX_FAILURES;
-        }
-    }
-
-    public void fail(String email) {
-        Deque<Instant> d = failures.computeIfAbsent(email, k -> new ArrayDeque<>());
-        synchronized (d) {
-            prune(d);
-            d.addLast(clock.instant());
-        }
+    /** Records an attempt before the password is checked; false when the window already holds 5. */
+    public boolean tryAcquire(String email) {
+        if (calls.incrementAndGet() % SWEEP_EVERY == 0) sweep();
+        boolean[] allowed = {false};
+        attempts.compute(email, (k, d) -> {
+            Instant now = clock.instant();
+            if (d == null) d = new ArrayDeque<>();
+            while (!d.isEmpty() && !d.peekFirst().isAfter(now.minus(WINDOW))) d.removeFirst();
+            if (d.size() < MAX_ATTEMPTS) {
+                d.addLast(now);
+                allowed[0] = true;
+            }
+            return d;
+        });
+        return allowed[0];
     }
 
     public void reset(String email) {
-        failures.remove(email);
+        attempts.remove(email);
     }
 
-    private void prune(Deque<Instant> d) {
+    int size() {
+        return attempts.size();
+    }
+
+    private void sweep() {
         Instant cutoff = clock.instant().minus(WINDOW);
-        while (!d.isEmpty() && !d.peekFirst().isAfter(cutoff)) d.removeFirst();
+        attempts.entrySet().removeIf(e -> e.getValue().isEmpty() || !e.getValue().peekLast().isAfter(cutoff));
     }
 }
