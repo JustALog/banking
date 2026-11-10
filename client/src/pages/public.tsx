@@ -1,16 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router';
-import { api, login } from '../gateway.js';
-import { validationText } from '../format.js';
-import { useSession } from '../hooks.js';
-import { Receipt } from '../ui.jsx';
+import { ApiError, api, login } from '../gateway.ts';
+import { validationText } from '../format.ts';
+import { useSession } from '../hooks.ts';
+import type { Customer, TransferStatus } from '../types.ts';
+import { Receipt } from '../ui.tsx';
 
 const SAMPLE = { amount: 2500000, currency: 'VND', sourceAccountId: '', destAccountId: '' };
 
 /** The landing's one orchestrated moment: a sample receipt walks through the real saga once. */
 function LiveReceipt() {
   const still = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const [status, setStatus] = useState(still ? 'COMPLETED' : 'PENDING');
+  const [status, setStatus] = useState<TransferStatus>(still ? 'COMPLETED' : 'PENDING');
   const [run, setRun] = useState(0);
   useEffect(() => {
     if (still) return undefined;
@@ -33,9 +34,9 @@ function LiveReceipt() {
 
 export function Landing() {
   const navigate = useNavigate();
-  const start = (e) => {
+  const start = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const email = new FormData(e.currentTarget).get('email').trim();
+    const email = String(new FormData(e.currentTarget).get('email') ?? '').trim();
     navigate(email ? `/register?email=${encodeURIComponent(email)}` : '/register');
   };
   return (
@@ -80,25 +81,26 @@ export function Landing() {
   );
 }
 
-function useSubmit(action) {
+function useSubmit(action: (fields: Record<string, string>) => Promise<void>) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const onSubmit = async (e) => {
+  const onSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
     setBusy(true);
     try {
-      await action(Object.fromEntries(new FormData(e.currentTarget)));
-    } catch (err) {
+      await action(Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>);
+    } catch (e) {
+      const err = e as ApiError;
       setBusy(false); // first, so the button can never stay stuck on "Đang…"
-      const known = { 401: 'Email hoặc mật khẩu không đúng.', 409: 'Email này đã được đăng ký. Hãy đăng nhập.', 423: 'Tài khoản đã bị khoá. Liên hệ ngân hàng để mở lại.' };
+      const known: Record<number, string> = { 401: 'Email hoặc mật khẩu không đúng.', 409: 'Email này đã được đăng ký. Hãy đăng nhập.', 423: 'Tài khoản đã bị khoá. Liên hệ ngân hàng để mở lại.' };
       setError(known[err.status] ?? validationText(err.data?.errors) ?? err.message);
     }
   };
   return { error, busy, onSubmit };
 }
 
-function Password({ name, autoComplete, label, hint }) {
+function Password({ name, autoComplete, label, hint }: { name: string; autoComplete: string; label: string; hint?: string }) {
   const [shown, setShown] = useState(false);
   return (
     <label>{label}
@@ -115,7 +117,7 @@ function Password({ name, autoComplete, label, hint }) {
   );
 }
 
-function AuthCard({ title, lead, children, footer }) {
+function AuthCard({ title, lead, children, footer }: { title: string; lead?: string; children: ReactNode; footer: ReactNode }) {
   return (
     <div className="auth">
       <div className="object">
@@ -130,7 +132,7 @@ function AuthCard({ title, lead, children, footer }) {
   );
 }
 
-const home = (customer) => (customer.role === 'ADMIN' ? '/admin' : '/app');
+const home = (customer: Customer) => (customer.role === 'ADMIN' ? '/admin' : '/app');
 
 export function Login() {
   const session = useSession();

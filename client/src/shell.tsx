@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
+import type { Role } from './types.ts';
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
-import { logout } from './gateway.js';
-import { useSession } from './hooks.js';
+import { logout } from './gateway.ts';
+import { useSession } from './hooks.ts';
 
-const Brand = ({ to }) => (
+const Brand = ({ to }: { to: string }) => (
   <Link to={to} className="brand"><span className="brand-mark" aria-hidden="true" />Banking</Link>
 );
 
@@ -55,7 +56,7 @@ export function PublicFrame() {
   );
 }
 
-export function RequireRole({ role }) {
+export function RequireRole({ role }: { role?: Role }) {
   const session = useSession();
   const location = useLocation();
   if (!session) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
@@ -63,7 +64,7 @@ export function RequireRole({ role }) {
   return <Outlet />;
 }
 
-const USER_NAV = [
+const USER_NAV: [to: string, label: string, end?: boolean][] = [
   ['/app', 'Tổng quan', true],
   ['/app/accounts', 'Tài khoản'],
   ['/app/transfer', 'Chuyển tiền'],
@@ -71,14 +72,14 @@ const USER_NAV = [
   ['/app/notifications', 'Thông báo'],
   ['/app/profile', 'Hồ sơ'],
 ];
-const ADMIN_NAV = [
+const ADMIN_NAV: [to: string, label: string, end?: boolean][] = [
   ['/admin', 'Khách hàng', true],
   ['/admin/accounts', 'Tài khoản hệ thống'],
   ['/admin/transfers', 'Giao dịch hệ thống'],
 ];
 
 export function AppShell() {
-  const { customer } = useSession();
+  const { customer } = useSession()!; // AppShell only renders under RequireRole
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const [open, setOpen] = useState(false);

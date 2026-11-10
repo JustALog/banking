@@ -1,14 +1,14 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
-import { AppShell, PublicFrame, RequireRole } from './shell.jsx';
-import { Landing, Login, NotFound, Register } from './pages/public.jsx';
-import { AccountDetail, Accounts, Dashboard, Notifications, Profile, Transactions } from './pages/user.jsx';
-import { TransactionDetail, Transfer } from './pages/transfer.jsx';
-import { AdminAccounts, AdminCustomers, AdminTransfers } from './pages/admin.jsx';
+import { AppShell, PublicFrame, RequireRole } from './shell.tsx';
+import { Landing, Login, NotFound, Register } from './pages/public.tsx';
+import { AccountDetail, Accounts, Dashboard, Notifications, Profile, Transactions } from './pages/user.tsx';
+import { TransactionDetail, Transfer } from './pages/transfer.tsx';
+import { AdminAccounts, AdminCustomers, AdminTransfers } from './pages/admin.tsx';
 import './styles.css';
 
-createRoot(document.getElementById('root')).render(
+createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
       <Routes>

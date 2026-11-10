@@ -1,14 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
-import { STATUS, dateTime, groupByDay, reasonText, sagaSteps, shortId } from './format.js';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { STATUS, dateTime, groupByDay, reasonText, sagaSteps, shortId } from './format.ts';
+import type { Load } from './hooks.ts';
+import type { Message, Transfer, TransferStatus } from './types.ts';
 
-export function Loaded({ state, children, empty, isEmpty = (d) => Array.isArray(d) && d.length === 0 }) {
+export function Loaded<T>({ state, children, empty, isEmpty = (d) => Array.isArray(d) && d.length === 0 }: {
+  state: Load<T>;
+  children: (data: T) => ReactNode;
+  empty?: ReactNode;
+  isEmpty?: (data: T | null) => boolean;
+}) {
   if (state.loading && !state.data) return <p className="muted" role="status">Đang tải…</p>;
   if (state.error && !state.data) return <p className="alert bad" role="alert">{state.error.message}</p>;
   if (empty && isEmpty(state.data)) return empty;
-  return children(state.data);
+  return children(state.data as T);
 }
 
-export const EmptyState = ({ title, children, action }) => (
+export const EmptyState = ({ title, children, action }: { title: string; children?: ReactNode; action?: ReactNode }) => (
   <div className="empty">
     <h3>{title}</h3>
     {children && <p>{children}</p>}
@@ -20,7 +27,13 @@ export const EmptyState = ({ title, children, action }) => (
  * Money is the loudest type on every screen: light figures, the currency code set small beside them.
  * `sign` is '+', '−' or omitted; `size` is 'sm' (lists), 'md' (cards) or 'lg' (page hero).
  */
-export function Amount({ value, currency, sign, size = 'sm', struck = false }) {
+export function Amount({ value, currency, sign, size = 'sm', struck = false }: {
+  value: number | string;
+  currency: string;
+  sign?: '+' | '−';
+  size?: 'sm' | 'md' | 'lg';
+  struck?: boolean;
+}) {
   const n = Number(value).toLocaleString('vi-VN');
   return (
     <span className={`amt amt-${size} ${sign === '+' ? 'in' : ''} ${struck ? 'struck' : ''}`}>
@@ -30,19 +43,19 @@ export function Amount({ value, currency, sign, size = 'sm', struck = false }) {
   );
 }
 
-export function StatusBadge({ status }) {
+export function StatusBadge({ status }: { status: TransferStatus }) {
   const s = STATUS[status] ?? { label: status, tone: '' };
   return <span className={`badge ${s.tone}`}>{s.label}</span>;
 }
 
-export const StatBlock = ({ label, value }) => (
+export const StatBlock = ({ label, value }: { label: string; value: ReactNode }) => (
   <div className="stat">
     <p className="stat-value">{value}</p>
     <p className="label">{label}</p>
   </div>
 );
 
-export const PageHead = ({ title, lead, children }) => (
+export const PageHead = ({ title, lead, children }: { title: string; lead?: string; children?: ReactNode }) => (
   <header className="page-head">
     <div>
       <h1>{title}</h1>
@@ -52,7 +65,7 @@ export const PageHead = ({ title, lead, children }) => (
   </header>
 );
 
-export function CopyButton({ text, label = 'Sao chép', className = 'btn btn-frost small' }) {
+export function CopyButton({ text, label = 'Sao chép', className = 'btn btn-frost small' }: { text: string; label?: string; className?: string }) {
   const [done, setDone] = useState(false);
   const copy = async () => {
     try {
@@ -65,7 +78,7 @@ export function CopyButton({ text, label = 'Sao chép', className = 'btn btn-fro
 }
 
 /** Day headings over a list; `children` renders one item. */
-export function DayGroups({ items, children }) {
+export function DayGroups<T extends { createdAt: string }>({ items, children }: { items: T[]; children: (item: T) => ReactNode }) {
   return groupByDay(items).map(([label, group]) => (
     <section className="day" key={label} aria-label={label}>
       <h3 className="day-label">{label}</h3>
@@ -75,10 +88,19 @@ export function DayGroups({ items, children }) {
 }
 
 /** Native modal: Escape and the cancel button both call onCancel; the browser returns focus to the opener. */
-export function ConfirmDialog({ open, title, children, confirmLabel, busy, onConfirm, onCancel }) {
-  const ref = useRef(null);
+export function ConfirmDialog({ open, title, children, confirmLabel, busy, onConfirm, onCancel }: {
+  open: boolean;
+  title: string;
+  children?: ReactNode;
+  confirmLabel: string;
+  busy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const d = ref.current;
+    if (!d) return;
     if (open && !d.open) d.showModal();
     if (!open && d.open) d.close();
   }, [open]);
@@ -94,7 +116,7 @@ export function ConfirmDialog({ open, title, children, confirmLabel, busy, onCon
   );
 }
 
-export function Toast({ message, onClose }) {
+export function Toast({ message, onClose }: { message: Message | null; onClose: () => void }) {
   useEffect(() => {
     if (!message) return undefined;
     const t = setTimeout(onClose, 4000);
@@ -104,7 +126,7 @@ export function Toast({ message, onClose }) {
 }
 
 /** Where the transfer is in its journey; the failed step carries the reason. */
-export function SagaTimeline({ transfer }) {
+export function SagaTimeline({ transfer }: { transfer: Pick<Transfer, 'status' | 'failureReason'> }) {
   return (
     <ol className="saga">
       {sagaSteps(transfer).map((s) => (
@@ -123,7 +145,11 @@ export function SagaTimeline({ transfer }) {
 }
 
 /** One transfer as a live receipt. */
-export function Receipt({ transfer, from, to }) {
+export function Receipt({ transfer, from, to }: {
+  transfer: Pick<Transfer, 'amount' | 'currency' | 'status' | 'sourceAccountId' | 'destAccountId'> & Partial<Transfer>;
+  from?: string;
+  to?: string;
+}) {
   return (
     <article className="receipt" aria-live="polite">
       <div className="receipt-top">
