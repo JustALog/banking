@@ -1,3 +1,4 @@
+import { REASONS, validationText } from './format.ts';
 import type { Customer, Session } from './types.ts';
 
 // Session lives in sessionStorage so a refresh keeps you signed in, but closing the tab signs you out.
@@ -42,8 +43,8 @@ export function messageFor(status: number, data?: any): string {
   if (status === 0 || status >= 502 || (status === 500 && !data)) {
     return 'Không kết nối được máy chủ. Kiểm tra kết nối mạng rồi thử lại.';
   }
-  if (Array.isArray(data?.errors)) return data.errors.join('; ');
-  return data?.detail || data?.error || `Yêu cầu thất bại (HTTP ${status}).`;
+  if (data?.code && data.code in REASONS) return REASONS[data.code];
+  return validationText(data?.errors) || data?.detail || `Yêu cầu thất bại (HTTP ${status}).`;
 }
 
 export async function api<T = any>(

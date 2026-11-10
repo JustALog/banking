@@ -18,9 +18,13 @@ export const STATUS: Record<TransferStatus, { label: string; tone: string }> = {
   FAILED: { label: 'Thất bại', tone: 'bad' },
 };
 
-const REASONS: Record<string, string> = {
+export const REASONS: Record<string, string> = {
   FRAUD_REJECTED: 'Giao dịch bị chặn bởi kiểm tra an toàn (số tiền vượt ngưỡng hoặc chuyển quá nhiều lần trong thời gian ngắn).',
   INSUFFICIENT_FUNDS: 'Số dư tài khoản nguồn không đủ.',
+  SOURCE_ACCOUNT_INVALID: 'Tài khoản nguồn không hợp lệ.',
+  EMAIL_TAKEN: 'Email này đã được đăng ký. Hãy đăng nhập.',
+  BAD_CREDENTIALS: 'Email hoặc mật khẩu không đúng.',
+  CUSTOMER_LOCKED: 'Tài khoản đã bị khoá. Liên hệ ngân hàng để mở lại.',
   ACCOUNT_NOT_FOUND: 'Không tìm thấy tài khoản nhận.',
   CURRENCY_MISMATCH: 'Hai tài khoản khác loại tiền.',
   SELF_TRANSFER_NOT_ALLOWED: 'Không thể chuyển vào chính tài khoản nguồn.',
@@ -30,7 +34,7 @@ const REASONS: Record<string, string> = {
 
 export const reasonText = (code?: string | null) => (code ? REASONS[code] ?? code : '');
 
-// Bean Validation messages arrive as "field: english text"; say them per field in Vietnamese.
+// Validation errors arrive as {field, message}; say them per field in Vietnamese.
 const FIELD_ERRORS: Record<string, string> = {
   fullName: 'Nhập họ và tên.',
   email: 'Email không đúng định dạng.',
@@ -38,7 +42,7 @@ const FIELD_ERRORS: Record<string, string> = {
 };
 export function validationText(errors: unknown): string | null {
   if (!Array.isArray(errors) || !errors.length) return null;
-  return errors.map((e: string) => FIELD_ERRORS[e.split(':')[0].trim()] ?? e).join(' ');
+  return errors.map((e: { field: string; message: string }) => FIELD_ERRORS[e.field] ?? e.message).join(' ');
 }
 
 // Sum balances per currency; accounts in different currencies must not be added together.
