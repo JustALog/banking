@@ -88,4 +88,5 @@ test('validationText turns backend field errors into Vietnamese', () => {
 test('messageFor prefers a known error code over the English detail', () => {
   assert.equal(messageFor(422, { code: 'CURRENCY_MISMATCH', detail: 'Currency mismatch' }), 'Hai tài khoản khác loại tiền.');
   assert.equal(messageFor(422, { code: 'UNKNOWN_CODE', detail: 'Boom' }), 'Boom');
+  assert.equal(messageFor(429, { code: 'TOO_MANY_ATTEMPTS' }), 'Bạn nhập sai quá nhiều lần. Thử lại sau 15 phút.');
 });
