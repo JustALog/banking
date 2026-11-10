@@ -64,7 +64,8 @@ export function usePaged<T>(path: string, size = 50): Paged<T> {
     }
   }, [path, size]);
   useEffect(() => {
-    setState((s) => ({ ...s, loading: true }));
+    page.current = 0;
+    setState({ items: [], loaded: false, more: false, error: null, loading: true }); // new query: never pair old rows with it
     load(0);
     return () => { seq.current++; };
   }, [load]);
