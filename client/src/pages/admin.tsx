@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { Account, Customer, Message, Transfer, TransferStatus } from '../types.ts';
 import { api, get } from '../gateway.ts';
 import { STATUS, date, formatAccountNo, groupByDay, money, parseAmount, reasonText, shortId, statusCounts, time, totalsByCurrency } from '../format.ts';
@@ -101,14 +101,16 @@ export function AdminCustomers() {
   );
 }
 
-function DepositForm({ account, onAsk }: { account: Account; onAsk: (account: Account, value: number, clear: () => void) => void }) {
+function DepositForm({ account, onAsk }: { account: Account; onAsk: (account: Account, value: number, clear: () => void, key: string) => void }) {
   const [text, setText] = useState('');
+  // One key per intended deposit: a retry after a failure reuses it, so the credit lands at most once.
+  const key = useRef(crypto.randomUUID());
   const value = parseAmount(text);
   const valid = value != null && value > 0 && value <= 1e12;
   return (
-    <form className="row" style={{ flexWrap: 'nowrap' }} onSubmit={(e) => { e.preventDefault(); if (valid) onAsk(account, value, () => setText('')); }}>
+    <form className="row" style={{ flexWrap: 'nowrap' }} onSubmit={(e) => { e.preventDefault(); if (valid) onAsk(account, value, () => { setText(''); key.current = crypto.randomUUID(); }, key.current); }}>
       <span className={`field ${text && !valid ? 'invalid' : ''}`} style={{ width: 160, minHeight: 40 }}>
-        <input inputMode="numeric" value={text} onChange={(e) => setText(e.target.value)} placeholder="Số tiền"
+        <input inputMode="numeric" value={text} onChange={(e) => { setText(e.target.value); key.current = crypto.randomUUID(); }} placeholder="Số tiền"
           aria-label={`Số tiền nạp vào ${account.accountNo}`} style={{ height: 38 }} />
       </span>
       <button type="submit" className="btn btn-frost small" disabled={!valid}>Nạp</button>
@@ -165,7 +167,7 @@ export function AdminAccounts() {
                         <td><span className="acct">{formatAccountNo(a.accountNo)}</span><br /><span className="hint">Mở {date(a.createdAt)}</span></td>
                         <td className="break">{owner.get(a.customerId)?.email ?? <span className="acct">{shortId(a.customerId)}</span>}</td>
                         <td className="num"><Amount value={a.balance} currency={a.currency} /></td>
-                        <td><DepositForm account={a} onAsk={(account, value, clear) => setPending({ account, value, clear, key: crypto.randomUUID() })} /></td>
+                        <td><DepositForm account={a} onAsk={(account, value, clear, key) => setPending({ account, value, clear, key })} /></td>
                       </tr>
                     ))}
                   </tbody>
