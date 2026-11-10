@@ -14,6 +14,7 @@ import vn.banking.ledger.entry.LedgerEntryRepository;
 public class AccountService {
 
     private static final SecureRandom RANDOM = new SecureRandom();
+    private static final int MAX_ACCOUNTS_PER_CUSTOMER = 10;
 
     private final AccountRepository repository;
     private final LedgerEntryRepository entries;
@@ -25,6 +26,9 @@ public class AccountService {
 
     @Transactional
     public Account openAccount(UUID customerId, String currency) {
+        if (repository.countByCustomerId(customerId) >= MAX_ACCOUNTS_PER_CUSTOMER) {
+            throw new AccountLimitException();
+        }
         String accountNo = generateUniqueAccountNo();
         return repository.save(new Account(customerId, accountNo, currency));
     }
@@ -86,6 +90,12 @@ public class AccountService {
     public static class AccountNotFoundException extends RuntimeException {
         public AccountNotFoundException(UUID id) {
             super("Account not found");
+        }
+    }
+
+    public static class AccountLimitException extends RuntimeException {
+        public AccountLimitException() {
+            super("Account limit reached");
         }
     }
 }
