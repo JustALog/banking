@@ -1,6 +1,9 @@
 package vn.banking.notification.service;
 
+import java.text.NumberFormat;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.data.domain.Pageable;
 
@@ -17,6 +20,16 @@ public class NotificationService {
 
     private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
 
+    // Same wording as the client's REASONS (client/src/format.ts); unknown codes are shown as-is.
+    private static final Map<String, String> REASONS = Map.of(
+            "FRAUD_REJECTED", "Giao dịch bị chặn bởi kiểm tra an toàn (số tiền vượt ngưỡng hoặc chuyển quá nhiều lần trong thời gian ngắn).",
+            "INSUFFICIENT_FUNDS", "Số dư tài khoản nguồn không đủ.",
+            "ACCOUNT_NOT_FOUND", "Không tìm thấy tài khoản nhận.",
+            "CURRENCY_MISMATCH", "Hai tài khoản khác loại tiền.",
+            "SELF_TRANSFER_NOT_ALLOWED", "Không thể chuyển vào chính tài khoản nguồn.",
+            "PARTNER_TIMEOUT", "Ngân hàng đối tác không phản hồi kịp. Tiền đã được hoàn lại tài khoản nguồn.",
+            "PARTNER_FAILED", "Ngân hàng đối tác từ chối giao dịch. Tiền đã được hoàn lại tài khoản nguồn.");
+
     private final NotificationRepository repository;
 
     public NotificationService(NotificationRepository repository) {
@@ -25,57 +38,48 @@ public class NotificationService {
 
     @Transactional
     public Notification notifyTransferCompleted(UUID customerId, UUID transferId, long amount, String currency) {
-        String title = "Transfer Successful";
-        String content = "Your transfer of %d %s (ID: %s) has been successfully processed."
-                .formatted(amount, currency, transferId);
-        var alreadySent = repository.findFirstByTransferIdAndTitle(transferId, title);
-        if (alreadySent.isPresent()) {
-            return alreadySent.get();
-        }
-        String recipient = customerId != null ? customerId.toString() : "user";
+        return send(customerId, transferId, "Chuyển tiền thành công",
+                "Lệnh chuyển %s %s đã hoàn tất. Mã giao dịch %s.".formatted(money(amount), currency, transferId));
+    }
 
-        // Mock dispatch to Email / SMS
-        log.info("[MOCK DISPATCH] Sending Notification: recipient={}, title='{}', content='{}'",
-                recipient, title, content);
-
-        Notification notification = new Notification(
-                customerId != null ? customerId : UUID.randomUUID(),
-                transferId,
-                Notification.Channel.EMAIL,
-                recipient,
-                title,
-                content,
-                Notification.Status.SENT);
-
-        return repository.save(notification);
+    @Transactional
+    public Notification notifyTransferReceived(UUID destCustomerId, UUID transferId, long amount, String currency) {
+        return send(destCustomerId, transferId, "Bạn vừa nhận tiền",
+                "Tài khoản của bạn vừa nhận %s %s. Mã giao dịch %s.".formatted(money(amount), currency, transferId));
     }
 
     @Transactional
     public Notification notifyTransferFailed(UUID customerId, UUID transferId, String reason) {
-        String title = "Transfer Failed";
-        String content = "Your transfer (ID: %s) could not be completed. Reason: %s."
-                .formatted(transferId, reason);
+        String text = reason == null ? "" : REASONS.getOrDefault(reason, reason);
+        return send(customerId, transferId, "Chuyển tiền không thành công",
+                "Lệnh chuyển (mã %s) không thực hiện được: %s".formatted(transferId, text));
+    }
+
+    private static String money(long amount) {
+        return NumberFormat.getIntegerInstance(Locale.forLanguageTag("vi-VN")).format(amount);
+    }
+
+    private Notification send(UUID customerId, UUID transferId, String title, String content) {
         // Kafka delivers at least once: a redelivered event must not message the customer twice
         var alreadySent = repository.findFirstByTransferIdAndTitle(transferId, title);
         if (alreadySent.isPresent()) {
             return alreadySent.get();
         }
+        // shortcut: recipient is the customer id; store email when a real EMAIL/SMS sender is added.
         String recipient = customerId != null ? customerId.toString() : "user";
 
         // Mock dispatch to Email / SMS
         log.info("[MOCK DISPATCH] Sending Notification: recipient={}, title='{}', content='{}'",
                 recipient, title, content);
 
-        Notification notification = new Notification(
+        return repository.save(new Notification(
                 customerId != null ? customerId : UUID.randomUUID(),
                 transferId,
                 Notification.Channel.EMAIL,
                 recipient,
                 title,
                 content,
-                Notification.Status.SENT);
-
-        return repository.save(notification);
+                Notification.Status.SENT));
     }
 
     @Transactional(readOnly = true)

@@ -48,8 +48,8 @@ class NotificationServiceTest {
         assertThat(saved.getCustomerId()).isEqualTo(customerId);
         assertThat(saved.getTransferId()).isEqualTo(transferId);
         assertThat(saved.getStatus()).isEqualTo(Notification.Status.SENT);
-        assertThat(saved.getTitle()).contains("Successful");
-        assertThat(saved.getContent()).contains("500000 VND");
+        assertThat(saved.getTitle()).isEqualTo("Chuyển tiền thành công");
+        assertThat(saved.getContent()).contains("500.000 VND");
     }
 
     @Test
@@ -68,21 +68,43 @@ class NotificationServiceTest {
         assertThat(saved.getCustomerId()).isEqualTo(customerId);
         assertThat(saved.getTransferId()).isEqualTo(transferId);
         assertThat(saved.getStatus()).isEqualTo(Notification.Status.SENT);
-        assertThat(saved.getTitle()).contains("Failed");
-        assertThat(saved.getContent()).contains("INSUFFICIENT_FUNDS");
+        assertThat(saved.getTitle()).isEqualTo("Chuyển tiền không thành công");
+        assertThat(saved.getContent()).contains("Số dư tài khoản nguồn không đủ.");
     }
 
     @Test
     void redeliveredEventDoesNotNotifyTwice() {
         UUID transferId = UUID.randomUUID();
         Notification existing = new Notification(UUID.randomUUID(), transferId, Notification.Channel.EMAIL,
-                "user", "Transfer Successful", "sent before", Notification.Status.SENT);
-        when(repository.findFirstByTransferIdAndTitle(transferId, "Transfer Successful")).thenReturn(Optional.of(existing));
+                "user", "Chuyển tiền thành công", "sent before", Notification.Status.SENT);
+        when(repository.findFirstByTransferIdAndTitle(transferId, "Chuyển tiền thành công")).thenReturn(Optional.of(existing));
 
         Notification result = service.notifyTransferCompleted(UUID.randomUUID(), transferId, 500000, "VND");
 
         assertThat(result).isSameAs(existing);
         verify(repository, never()).save(any());
+    }
+
+    @Test
+    void receivedNotifiesRecipientWithOwnTitle() {
+        UUID dest = UUID.randomUUID();
+        UUID transferId = UUID.randomUUID();
+        when(repository.save(any(Notification.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Notification n = service.notifyTransferReceived(dest, transferId, 2500000, "VND");
+
+        assertThat(n.getCustomerId()).isEqualTo(dest);
+        assertThat(n.getTitle()).isEqualTo("Bạn vừa nhận tiền");
+        assertThat(n.getContent()).isEqualTo("Tài khoản của bạn vừa nhận 2.500.000 VND. Mã giao dịch " + transferId + ".");
+    }
+
+    @Test
+    void unknownFailureReasonIsShownAsCode() {
+        when(repository.save(any(Notification.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        Notification n = service.notifyTransferFailed(UUID.randomUUID(), UUID.randomUUID(), "WEIRD_CODE");
+
+        assertThat(n.getContent()).endsWith("không thực hiện được: WEIRD_CODE");
     }
 
     @Test

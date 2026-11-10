@@ -28,6 +28,11 @@ public class TransferEventsListener {
         log.info("Received transfer.completed event for transfer {}", event.transferId());
         notificationService.notifyTransferCompleted(
                 event.customerId(), event.transferId(), event.amount(), event.currency());
+        // A transfer between two of the sender's own accounts needs only the one message.
+        if (event.destCustomerId() != null && !event.destCustomerId().equals(event.customerId())) {
+            notificationService.notifyTransferReceived(
+                    event.destCustomerId(), event.transferId(), event.amount(), event.currency());
+        }
     }
 
     @KafkaListener(topics = Topics.TRANSFER_FAILED, groupId = "${spring.kafka.consumer.group-id}")
