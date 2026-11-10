@@ -229,16 +229,16 @@ services:
       BANKING_NOTIFY_URL: http://notification-service:8085
 
   # Customer/admin website (React build served by nginx, API paths proxied to the gateway).
-  # Opt-in:  docker compose --profile web up -d --build web   → http://localhost:5174
+  # Opt-in:  docker compose --profile web up -d --build web   → http://localhost:5173
   web:
-    build: {context: ../../web}
+    build: {context: ../../client}
     image: banking/web:dev
     container_name: banking-web
     profiles: ["web"]
     restart: unless-stopped
     depends_on:
       gateway-service: {condition: service_healthy}
-    ports: ["5174:80"]
+    ports: ["5173:80"]
     environment:
       GATEWAY_URL: http://gateway-service:8080
     deploy:

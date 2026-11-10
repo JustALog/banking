@@ -15,15 +15,15 @@ permissions:
   contents: read
 
 jobs:
-  # Both TypeScript frontends must install, type-check, test, build and serve on every supported Node line, oldest (14) first.
+  # The website (client/) must install, test, build and serve on every Node line Vite 8 supports.
   frontend:
     name: ${{ matrix.app }} · node ${{ matrix.node }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        app: [web, client]
-        node: ['14.18.0', '14.x', '16.x', '18.x', '20.x', '22.x']
+        app: [client]
+        node: ['20.x', '22.x']
     defaults:
       run:
         working-directory: ${{ matrix.app }}
@@ -44,9 +44,9 @@ jobs:
           npx vite preview --port 4173 --strictPort > preview.log 2>&1 &
           for _ in $(seq 30); do curl -sf http://localhost:4173/ > /dev/null && break; sleep 1; done
           curl -sf http://localhost:4173/ | grep -q '<div id="' || { cat preview.log; exit 1; }
-          # web is an SPA: deep links must fall back to index.html
-          if [ "${{ matrix.app }}" = web ]; then curl -sf http://localhost:4173/app/transfer | grep -q 'id="root"'; fi
-      - if: matrix.node == '14.x'
+          # the website is an SPA: deep links must fall back to index.html
+          curl -sf http://localhost:4173/app/transfer | grep -q 'id="root"'
+      - if: matrix.node == '22.x'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.app }}-dist
@@ -97,7 +97,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {image: web, context: web, file: web/Dockerfile, module: ''}
+          - {image: web, context: client, file: client/Dockerfile, module: ''}
           - {image: auth-service, context: server, file: server/Dockerfile, module: auth-service}
           - {image: ledger-service, context: server, file: server/Dockerfile, module: ledger-service}
           - {image: transfer-service, context: server, file: server/Dockerfile, module: transfer-service}

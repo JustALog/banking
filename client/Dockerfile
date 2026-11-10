@@ -1,8 +1,7 @@
-# Production image for the banking website. The build stage pins the oldest supported Node (14),
-# so a green image build also proves the toolchain still works there.
-#   docker build -t banking/web:dev web/
+# Production image for the banking website. Vite 8 needs Node >= 20.19, so the build stage uses Node 22.
+#   docker build -t banking/web:dev client/
 #   docker run -p 8088:80 -e GATEWAY_URL=http://host.docker.internal:8080 banking/web:dev
-ARG NODE_VERSION=14.21.3
+ARG NODE_VERSION=22.12.0
 FROM node:${NODE_VERSION}-bullseye-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./

@@ -6,14 +6,12 @@ Distributed banking & payment platform per `Architect_diagram.drawio`.
 - **Round 1**: Core money-movement path: Auth/Customer → Transfer (saga + outbox + Debezium CDC) → Fraud (stub) → Ledger (sole balance owner) → Partner Bank call (Resilience4j).
 - **Round 2**: **API Gateway** (Spring Cloud Gateway, JWT verification, Idempotency-Key enforcement), **Notification Service** (`notify_db`, consumes completed/failed events, mocks Email/SMS), **Fraud Service with persistence & real velocity rules** (`fraud_db`), and **Ledger Reversal Compensation** for partner bank failures after posting.
 - **Round 3**: **Kubernetes** (kind, Helm, Strimzi 3-broker KRaft Kafka, CloudNativePG primary+standby, NGINX Ingress, HPA/PDB/NetworkPolicy), **Backup** (Barman Cloud plugin → S3, daily + continuous WAL, PITR), **Observability** (kube-prometheus-stack + Grafana dashboard, Fluent Bit → ECK Elasticsearch/Kibana).
-- **Test console**: Vite + vanilla TypeScript UI in `client/` for auth, accounts, transfers, notifications, scripted failure scenarios and a live API log.
-
-The React SPA lives in `web/`; `client/` stays a framework-free TypeScript test console.
+- **Website**: React 19 + Vite UI in `client/` for customers and admins, served by nginx in the container image.
 
 ## Layout
 
 ```
-client/                 browser test console (React 19 + Vite, plain JS, :5173)
+client/                 the website: React 19 + React Router 7 + Vite, plain JS (:5173)
   DESIGN.md             visual tokens and component notes
   src/main.jsx          entry point, routes
   src/shell.jsx, ui.jsx, hooks.js   layout, shared components, hooks
@@ -21,14 +19,7 @@ client/                 browser test console (React 19 + Vite, plain JS, :5173)
   src/gateway.js        gateway fetch wrapper and JWT handling
   src/format.js         money/date formatting (unit-tested)
   vite.config.js        dev server on :5173, proxies API paths to the gateway
-
-web/                    customer + admin banking website (React + TypeScript, :5174)
-  src/types.ts          API response types (mirror the services' *Response records)
-  src/gateway.ts        calls the gateway: JWT header, session storage, error messages
-  src/format.ts         money/date formatting, transfer status and failure-reason text
-  src/components.tsx    shell, receipt, shared hooks (useLoad, useSession)
-  src/pages/            public.tsx, user.tsx, admin.tsx
-  Dockerfile            Node 14 build stage → nginx (SPA fallback + API proxy)
+  Dockerfile, deploy/   Node 22 build stage -> nginx (SPA fallback + API proxy)
 
 server/
   common-events/        Kafka topic names + event records (shared contract)
@@ -56,7 +47,7 @@ Full API list grouped by service (vendor), with request/response examples: [API_
 ## Prerequisites
 
 - JDK 21+, Docker Desktop (or any docker compose v2)
-- Node.js `>=14.18.0` (CI tests 14.18 → 22), plus npm, for `web/` and `client/`
+- Node.js `>=20.19` (CI tests 20 and 22), plus npm, for `client/`
 - bash + curl (the smoke script uses python3 or node for JSON parsing; either works)
 
 ## Quickstart
@@ -97,7 +88,7 @@ Kafka Connect REST is on host port **8086**.
 
 Swagger UI per service: `http://localhost:808{1..5}/swagger-ui.html`.
 
-For the browser test console, see [Test console (client/)](#test-console-client).
+For the website, see [Website (client/)](#website-client).
 
 ## How the money moves & recovers
 
@@ -194,54 +185,35 @@ Known limits:
   WHERE t.status = 'PENDING' AND o.aggregatetype = 'transfer.requested';` (on `transfer_db`).
 - ingress-nginx is retired upstream (2026); the Ingress object is standard, so swapping controllers is a values change.
 
-## Website (web/)
+## Website (client/)
 
-The customer-facing banking site: React 19 + React Router 6 + TypeScript (strict) on Vite 4, talking to the gateway only. The toolchain is pinned to versions that still run on Node 14 (Vite 4.5, `@vitejs/plugin-react` 4, TypeScript 5.9, Vitest 0.34); lockfiles are `lockfileVersion: 2` so npm 6 (bundled with Node 14) and newer npm both honour them.
+The banking website for customers and admins: React 19 + React Router 7 on Vite 8, plain JavaScript, talking to the gateway only. Vite 8 needs Node 20.19 or newer.
 
-- **Public:** landing page, sign-in, and registration (opens a first VND account automatically).
-- **Customer (`/app`):** overview with total balance per currency and account cards; accounts list and opening new ones; account detail with statement and the account id to share for receiving money; transfer with review step and a per-transfer `Idempotency-Key`; live transfer receipt that polls until the saga settles; transaction history with status filter; notifications; profile.
-- **Admin (`/admin`, `ROLE_ADMIN` only):** customers with search and lock/unlock; all accounts with owner and deposit; all transfers with status filter.
+- **Public:** landing page, sign-in, and registration.
+- **Customer (`/app`):** dashboard, accounts and account detail, transfer, transaction history and detail, notifications, profile.
+- **Admin (`/admin`, `ROLE_ADMIN` only):** customers (`/admin`), accounts (`/admin/accounts`), transfers (`/admin/transfers`). Sign in as `admin@banking.local` / `admin12345` (set by `BANKING_ADMIN_EMAIL` / `BANKING_ADMIN_PASSWORD` in docker compose; unset means no admin is created).
 
-```bash
-cd web
-npm install
-npm run dev     # http://localhost:5174 (GATEWAY_URL overrides http://localhost:8080)
-npm run typecheck   # tsc --noEmit (strict)
-npm test            # unit tests for format.ts and gateway.ts (vitest)
-npm run build       # type-check, then static bundle in dist/
-```
-
-Deploy as a container (build stage on Node 14, served by nginx, API paths proxied to the gateway):
-
-```bash
-docker compose -f server/docker/docker-compose.yml --profile web up -d --build web   # http://localhost:5174
-# or standalone:
-docker build -t banking/web web/ && docker run -p 5174:80 -e GATEWAY_URL=http://host.docker.internal:8080 banking/web
-```
-
-The session (JWT + profile) is kept in `sessionStorage`: a refresh keeps you signed in, closing the tab signs you out.
-
-## Test console (client/)
-
-A lightweight Vite + vanilla TypeScript console for exercising the system through the gateway. It keeps the JWT in memory, shows every request/response in a live API log, and has four tabs for every user plus three admin tabs:
-
-- **Tài khoản** — open accounts, list balances, inspect ledger entries. There is no deposit API; the tab prints the `psql` command to seed a balance.
-- **Chuyển tiền** — submit a transfer with an `Idempotency-Key`, then watch the saga poll to `COMPLETED` or `FAILED`.
-- **Thông báo** — notifications persisted by notification-service.
-- **Quản trị: Khách hàng / Tài khoản / Giao dịch** — shown only to `ROLE_ADMIN`: list all customers and lock/unlock them, list all accounts and deposit into them, list all transfers. Sign in as `admin@banking.local` / `admin12345` (set by `BANKING_ADMIN_EMAIL` / `BANKING_ADMIN_PASSWORD` in docker compose; unset means no admin is created).
-- **Kịch bản kiểm thử** — one-click checks for USER getting 403 on admin APIs, missing JWT, blocked internal routes, missing/replayed idempotency keys, fraud threshold, insufficient funds and velocity rejection. The partner-timeout/reversal case is manual because it needs a service restart.
-
-Prerequisites: Node.js `>=14.18.0`, plus npm. Start the backend first (`bash server/scripts/demo.sh`), then:
+Start the backend first (`bash server/scripts/demo.sh`), then:
 
 ```bash
 cd client
 npm install
-npm run dev     # http://localhost:5173
+npm run dev     # http://localhost:5173 (GATEWAY_URL overrides http://localhost:8080)
+npm test        # unit tests for src/format.js (node --test)
+npm run build   # static bundle in dist/
 ```
 
-Vite proxies `/auth`, `/accounts`, `/transfers` and `/notifications` to the gateway, so the browser never calls the services directly and no CORS setup is needed. Override the target with `GATEWAY_URL=http://host:8080 npm run dev`.
+Vite proxies `/auth`, `/accounts`, `/transfers` and `/notifications` to the gateway, so the browser never calls the services directly and no CORS setup is needed.
 
-A Vite + React console for exercising the system through the gateway. It has no TypeScript, so `npm run typecheck` does not exist here. `npm test` runs the Node unit tests for `src/format.js`, and `npm run build` emits static assets to `client/dist/`.
+Run it as a container (build stage on Node 22, served by nginx, API paths proxied to the gateway):
+
+```bash
+docker compose -f server/docker/docker-compose.yml --profile web up -d --build web   # http://localhost:5173
+# or standalone:
+docker build -t banking/web client/ && docker run -p 5173:80 -e GATEWAY_URL=http://host.docker.internal:8080 banking/web
+```
+
+The session (JWT + profile) is kept in `sessionStorage`: a refresh keeps you signed in, closing the tab signs you out.
 
 ## CI/CD
 
@@ -249,10 +221,10 @@ A Vite + React console for exercising the system through the gateway. It has no 
 
 | Job | What it checks |
 |---|---|
-| `frontend` | `web/` and `client/` on Node 14.18.0, 14.x, 16, 18, 20, 22: `npm ci` → `npm run typecheck` → `npm test` → `npm run build` → `vite preview` smoke (root page + SPA deep link). The Node 14 `dist/` is kept as an artifact. |
+| `frontend` | `client/` on Node 20.x and 22.x: `npm ci` → `npm test` → `npm run build` → `vite preview` smoke (root page + SPA deep link). The Node 22 `dist/` is kept as an artifact. |
 | `backend` | JDK 21, throwaway RS256 keys, `mvn verify` (all module unit tests + gateway context test). |
 | `helm` | `helm lint` of the `banking` chart, full and `PROFILE=demo` values. |
-| `images` | Builds the 6 service images and the `web` image (whose build stage is Node 14); runs the web image and checks `/healthz`, SPA fallback and the gateway proxy. |
+| `images` | Builds the 6 service images and the `web` image (built from `client/`, Node 22 build stage); runs the web image and checks `/healthz`, SPA fallback and the gateway proxy. |
 
 On a push to `main` or a `v*` tag, `images` also pushes to GHCR as `ghcr.io/<owner>/banking/<image>` with tags
 `latest` (main), `sha-<short>`, the branch name and the semver of the tag. The path matches the chart's
@@ -262,4 +234,4 @@ make them public or add an image pull secret). Nothing is deployed to a cluster 
 
 ## Roadmap
 
-1. React SPA: done in `web/`. `client/` stays as the test console for now.
+1. The website is `client/`. The old `web/` TypeScript site was removed.
