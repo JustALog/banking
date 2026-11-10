@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { messageFor } from './gateway.ts';
 import {
-  formatAccountNo, groupByDay, parseAmount, reasonText, sagaSteps, validationText, statusCounts, totalsByCurrency, transferProblem, UUID_RE,
+  formatAccountNo, groupByDay, parseAmount, reasonText, sagaSteps, validationText, statusCounts, totalsByCurrency, transferProblem,
 } from './format.ts';
 
 test('sagaSteps marks where a transfer is, or where it failed', () => {
@@ -25,11 +25,6 @@ test('unknown failure reasons fall back to the raw code', () => {
   assert.equal(reasonText('SOMETHING_NEW'), 'SOMETHING_NEW');
   assert.equal(reasonText(null), '');
   assert.match(reasonText('INSUFFICIENT_FUNDS'), /Số dư/);
-});
-
-test('account id validation accepts UUIDs only', () => {
-  assert.ok(UUID_RE.test('3f2b8c1e-9a4d-4e2f-8b1a-0c9d8e7f6a5b'));
-  assert.ok(!UUID_RE.test('VN1234567890'));
 });
 
 test('parseAmount accepts grouped integers only', () => {
@@ -65,12 +60,12 @@ test('statusCounts always has every status', () => {
 });
 
 test('transferProblem checks in order', () => {
-  const from = { id: '3f2b8c1e-9a4d-4e2f-8b1a-0c9d8e7f6a5b', balance: 1000, currency: 'VND' };
-  const dest = 'a41c09e2-6b3f-4c8e-9d21-5f7e3b0c8d14';
-  assert.match(transferProblem({ mode: 'other', from, dest: '', amount: 5 }), /Nhập mã nhận tiền/);
+  const from = { id: '3f2b8c1e-9a4d-4e2f-8b1a-0c9d8e7f6a5b', accountNo: 'VN0000000001', balance: 1000, currency: 'VND' };
+  const dest = 'VN0123456789';
+  assert.match(transferProblem({ mode: 'other', from, dest: '', amount: 5 }), /Nhập số tài khoản/);
   assert.match(transferProblem({ mode: 'own', from, dest: '', amount: 5 }), /chưa có tài khoản khác/);
   assert.match(transferProblem({ mode: 'other', from, dest: 'VN123', amount: 5 }), /không đúng định dạng/);
-  assert.match(transferProblem({ mode: 'other', from, dest: from.id, amount: 5 }), /phải khác/);
+  assert.match(transferProblem({ mode: 'other', from, dest: from.accountNo, amount: 5 }), /phải khác/);
   assert.match(transferProblem({ mode: 'other', from, dest, amount: null }), /số nguyên dương/);
   assert.match(transferProblem({ mode: 'other', from, dest, amount: 0 }), /số nguyên dương/);
   assert.match(transferProblem({ mode: 'other', from, dest, amount: 1001 }), /vượt số dư/);

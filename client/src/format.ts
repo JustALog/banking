@@ -10,7 +10,6 @@ export const time = (iso: string) => new Date(iso).toLocaleTimeString('vi-VN', {
 export const shortId = (id?: string | null) => (id ? `${id.slice(0, 8)}…${id.slice(-4)}` : '');
 export const formatAccountNo = (no: string) => no.replace(/(.{4})/g, '$1 ').trim();
 
-export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const STATUS: Record<TransferStatus, { label: string; tone: string }> = {
   PENDING: { label: 'Đang xử lý', tone: 'wait' },
@@ -95,10 +94,10 @@ export function sagaSteps({ status, failureReason }: Pick<Transfer, 'status' | '
 }
 
 // First problem with a transfer draft, or '' when it can be reviewed.
-export function transferProblem({ mode, from, dest, amount }: { mode: 'own' | 'other'; from: Pick<Account, 'id' | 'balance' | 'currency'>; dest: string; amount: number | null }) {
-  if (!dest) return mode === 'own' ? 'Bạn chưa có tài khoản khác cùng loại tiền.' : 'Nhập mã nhận tiền của người nhận.';
-  if (!UUID_RE.test(dest)) return 'Mã nhận tiền không đúng định dạng.';
-  if (dest === from.id) return 'Tài khoản nhận phải khác tài khoản nguồn.';
+export function transferProblem({ mode, from, dest, amount }: { mode: 'own' | 'other'; from: Pick<Account, 'id' | 'accountNo' | 'balance' | 'currency'>; dest: string; amount: number | null }) {
+  if (!dest) return mode === 'own' ? 'Bạn chưa có tài khoản khác cùng loại tiền.' : 'Nhập số tài khoản của người nhận.';
+  if (mode === 'other' && !/^VN\d{10}$/.test(dest)) return 'Số tài khoản không đúng định dạng.';
+  if (dest === from.id || dest === from.accountNo) return 'Tài khoản nhận phải khác tài khoản nguồn.';
   if (amount == null || amount <= 0) return 'Nhập số tiền là số nguyên dương.';
   if (amount > from.balance) return `Số tiền vượt số dư (${money(from.balance, from.currency)}).`;
   return '';

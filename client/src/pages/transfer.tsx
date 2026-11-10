@@ -51,7 +51,7 @@ function TransferForm({ accounts }: { accounts: Account[] }) {
   const from = accounts.find((a) => a.id === source)!;
   const targets = accounts.filter((a) => a.id !== source && a.currency === from.currency);
   const ownTarget = targets.find((a) => a.id === own) ?? targets[0];
-  const dest = mode === 'own' ? (ownTarget?.id ?? '') : other.trim();
+  const dest = mode === 'own' ? (ownTarget?.id ?? '') : other.replace(/\s+/g, '').toUpperCase();
   const amount = parseAmount(amountText);
   const problem = transferProblem({ mode, from, dest, amount });
 
@@ -72,7 +72,7 @@ function TransferForm({ accounts }: { accounts: Account[] }) {
     setError('');
     try {
       const { data } = await api<TransferRecord>('POST', '/transfers', {
-        body: { sourceAccountId: source, destAccountId: dest, amount, currency: from.currency },
+        body: { sourceAccountId: source, ...(mode === 'own' ? { destAccountId: dest } : { destAccountNo: dest }), amount, currency: from.currency },
         headers: { 'Idempotency-Key': key.current },
       });
       navigate(`/app/transactions/${data.id}`, { state: { fromTransfer: true } });
@@ -94,7 +94,7 @@ function TransferForm({ accounts }: { accounts: Account[] }) {
         </div>
         <dl className="summary">
           <div><dt>Từ tài khoản</dt><dd className="acct">{formatAccountNo(from.accountNo)}</dd></div>
-          <div><dt>Đến</dt><dd className="acct break">{accountLabel(accounts, dest) ?? dest}</dd></div>
+          <div><dt>Đến</dt><dd className="acct break">{mode === 'own' ? accountLabel(accounts, dest) ?? dest : formatAccountNo(dest)}</dd></div>
           <div><dt>Số dư sau giao dịch</dt><dd><Amount value={from.balance - amount!} currency={from.currency} /></dd></div>
         </dl>
         {error && <p className="alert bad" role="alert">{error}</p>}
@@ -137,12 +137,12 @@ function TransferForm({ accounts }: { accounts: Account[] }) {
             </span>
           ) : <p className="hint">Bạn chưa có tài khoản {from.currency} nào khác. <Link to="/app/accounts">Mở thêm tài khoản</Link>.</p>
         ) : (
-          <label>Mã nhận tiền của người nhận
+          <label>Số tài khoản người nhận
             <span className="field">
-              <input value={other} onChange={onInput(setOther)} placeholder="vd. 3f2b8c1e-9a4d-4e2f-8b1a-0c9d8e7f6a5b" spellCheck={false} autoComplete="off" />
+              <input value={other} onChange={onInput(setOther)} placeholder="vd. VN0123456789" spellCheck={false} autoComplete="off" />
               {canPaste && <button type="button" className="btn btn-ghost small" onClick={paste}>Dán</button>}
             </span>
-            <span className="hint">Người nhận lấy mã này ở trang chi tiết tài khoản của họ.</span>
+            <span className="hint">Người nhận xem số tài khoản ở trang chi tiết tài khoản của họ.</span>
           </label>
         )}
       </fieldset>
@@ -191,7 +191,7 @@ export function TransactionDetail() {
       <Loaded state={transfer}>
         {(t) => (
           <div className="detail">
-            <Receipt transfer={t} from={accountLabel(accounts.data, t.sourceAccountId)} to={accountLabel(accounts.data, t.destAccountId)} />
+            <Receipt transfer={t} from={accountLabel(accounts.data, t.sourceAccountId, t.sourceAccountNo)} to={accountLabel(accounts.data, t.destAccountId, t.destAccountNo)} />
             <div className="stack">
               {pending && !stalled && <p className="alert" role="status">Đang chờ kiểm tra an toàn và ghi sổ. Trang tự cập nhật.</p>}
               {pending && stalled && <p className="alert">Giao dịch vẫn đang xử lý lâu hơn bình thường. Bạn có thể rời trang; kết quả sẽ có trong Thông báo.</p>}
