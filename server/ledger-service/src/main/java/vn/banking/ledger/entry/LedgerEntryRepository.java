@@ -9,6 +9,8 @@ public interface LedgerEntryRepository extends JpaRepository<LedgerEntry, UUID> 
 
     boolean existsByTransferId(UUID transferId);
 
+    boolean existsByTransferIdAndAccountId(UUID transferId, UUID accountId);
+
     List<LedgerEntry> findByTransferId(UUID transferId);
 
     List<LedgerEntry> findByAccountIdOrderByCreatedAtDesc(UUID accountId);

@@ -35,4 +35,10 @@ class InternalRouteBlockedTest {
         assertThat(firstMatchingRoute("/accounts")).isEqualTo("ledger-service");
         assertThat(firstMatchingRoute("/accounts/123e4567-e89b-12d3-a456-426614174000/entries")).isEqualTo("ledger-service");
     }
+
+    @Test
+    void depositGoesThroughIdempotencyRoute() {
+        assertThat(firstMatchingRoute("/accounts/admin/123e4567-e89b-12d3-a456-426614174000/deposit")).isEqualTo("ledger-deposit");
+        assertThat(firstMatchingRoute("/accounts")).isEqualTo("ledger-service");
+    }
 }
