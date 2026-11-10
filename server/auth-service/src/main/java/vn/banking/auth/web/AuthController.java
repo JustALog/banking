@@ -39,13 +39,13 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    public ResponseEntity<CustomerResponse> register(@Valid @RequestBody RegisterRequest request) {
+    public ResponseEntity<LoginResponse> register(@Valid @RequestBody RegisterRequest request) {
         Customer customer = customerService.register(request.email(), request.password(), request.fullName());
         URI location = ServletUriComponentsBuilder.fromCurrentContextPath()
                 .path("/auth/me")
                 .build()
                 .toUri();
-        return ResponseEntity.created(location).body(CustomerResponse.from(customer));
+        return ResponseEntity.created(location).body(session(customer));
     }
 
     @PostMapping("/login")
@@ -56,6 +56,10 @@ public class AuthController {
         }
         Customer customer = customerService.authenticate(request.email(), request.password());
         throttle.reset(key);
+        return session(customer);
+    }
+
+    private LoginResponse session(Customer customer) {
         String token = jwtService.issueToken(customer);
         return new LoginResponse(
                 token,
