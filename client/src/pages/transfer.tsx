@@ -78,7 +78,7 @@ function TransferForm({ accounts }: { accounts: Account[] }) {
       navigate(`/app/transactions/${data.id}`, { state: { fromTransfer: true } });
     } catch (e) {
       const err = e as ApiError;
-      setError(err.status === 422 ? 'Không tìm thấy tài khoản nhận, hoặc tài khoản không hợp lệ.' : err.message);
+      setError(err.message);
       sending.current = false;
       setBusy(false);
     }

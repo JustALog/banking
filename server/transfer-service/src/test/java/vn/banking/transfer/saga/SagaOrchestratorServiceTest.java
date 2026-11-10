@@ -99,6 +99,28 @@ class SagaOrchestratorServiceTest {
     }
 
     @Test
+    void destCurrencyMismatchHasCode() {
+        var source = new AccountValidationClient.LedgerAccount(sourceId, "VN0001", customerId, "VND", 1_000_000);
+        var dest = new AccountValidationClient.LedgerAccount(destId, "VN0002", UUID.randomUUID(), "USD", 50);
+        when(accountValidation.fetch(sourceId, "Bearer t")).thenReturn(source);
+        when(accountValidation.fetch(destId, "Bearer t")).thenReturn(dest);
+
+        assertThatThrownBy(() -> service.start(idemKey, customerId, sourceId, destId, 100, "VND", "Bearer t"))
+                .isInstanceOf(SagaOrchestratorService.AccountValidationException.class)
+                .extracting("code").isEqualTo("CURRENCY_MISMATCH");
+    }
+
+    @Test
+    void selfTransferHasCode() {
+        var source = new AccountValidationClient.LedgerAccount(sourceId, "VN0001", customerId, "VND", 1_000_000);
+        when(accountValidation.fetch(sourceId, "Bearer t")).thenReturn(source);
+
+        assertThatThrownBy(() -> service.start(idemKey, customerId, sourceId, sourceId, 100, "VND", "Bearer t"))
+                .isInstanceOf(SagaOrchestratorService.AccountValidationException.class)
+                .extracting("code").isEqualTo("SELF_TRANSFER_NOT_ALLOWED");
+    }
+
+    @Test
     void fraudRejectionFailsSagaWithOutboxEvent() {
         Transfer pending = pendingTransfer();
         when(transfers.findById(pending.getId())).thenReturn(Optional.of(pending));

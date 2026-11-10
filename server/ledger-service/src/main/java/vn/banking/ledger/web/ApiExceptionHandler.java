@@ -1,5 +1,7 @@
 package vn.banking.ledger.web;
 
+import java.util.Map;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -13,19 +15,24 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(AccountService.AccountNotFoundException.class)
     ProblemDetail notFound(AccountService.AccountNotFoundException e) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.getMessage());
+        ProblemDetail d = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.getMessage());
+        d.setProperty("code", "NOT_FOUND");
+        return d;
     }
 
     @ExceptionHandler(AccountService.NotAccountOwnerException.class)
     ProblemDetail forbidden(AccountService.NotAccountOwnerException e) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, e.getMessage());
+        ProblemDetail d = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, e.getMessage());
+        d.setProperty("code", "FORBIDDEN");
+        return d;
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ProblemDetail validation(MethodArgumentNotValidException e) {
         ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Request validation failed");
+        detail.setProperty("code", "VALIDATION_FAILED");
         detail.setProperty("errors", e.getBindingResult().getFieldErrors().stream()
-                .map(err -> err.getField() + ": " + err.getDefaultMessage())
+                .map(err -> Map.of("field", err.getField(), "message", String.valueOf(err.getDefaultMessage())))
                 .toList());
         return detail;
     }

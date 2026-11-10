@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { messageFor } from './gateway.ts';
 import {
   formatAccountNo, groupByDay, parseAmount, reasonText, sagaSteps, validationText, statusCounts, totalsByCurrency, transferProblem, UUID_RE,
 } from './format.ts';
@@ -77,9 +78,14 @@ test('transferProblem checks in order', () => {
 });
 
 test('validationText turns backend field errors into Vietnamese', () => {
-  assert.equal(validationText(['password: size must be between 8 and 100']), 'Mật khẩu cần từ 8 đến 100 ký tự.');
-  assert.equal(validationText(['fullName: must not be blank', 'email: must be a well-formed email address']),
+  assert.equal(validationText([{ field: 'password', message: 'size' }]), 'Mật khẩu cần từ 8 đến 100 ký tự.');
+  assert.equal(validationText([{ field: 'fullName', message: 'must not be blank' }, { field: 'email', message: 'bad' }]),
     'Nhập họ và tên. Email không đúng định dạng.');
-  assert.equal(validationText(['currency: weird']), 'currency: weird');
+  assert.equal(validationText([{ field: 'currency', message: 'weird' }]), 'weird');
   assert.equal(validationText(undefined), null);
+});
+
+test('messageFor prefers a known error code over the English detail', () => {
+  assert.equal(messageFor(422, { code: 'CURRENCY_MISMATCH', detail: 'Currency mismatch' }), 'Hai tài khoản khác loại tiền.');
+  assert.equal(messageFor(422, { code: 'UNKNOWN_CODE', detail: 'Boom' }), 'Boom');
 });

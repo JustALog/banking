@@ -1,7 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router';
 import { ApiError, api, login } from '../gateway.ts';
-import { validationText } from '../format.ts';
 import { useSession } from '../hooks.ts';
 import type { Customer, TransferStatus } from '../types.ts';
 import { Receipt } from '../ui.tsx';
@@ -93,8 +92,7 @@ function useSubmit(action: (fields: Record<string, string>) => Promise<void>) {
     } catch (e) {
       const err = e as ApiError;
       setBusy(false); // first, so the button can never stay stuck on "Đang…"
-      const known: Record<number, string> = { 401: 'Email hoặc mật khẩu không đúng.', 409: 'Email này đã được đăng ký. Hãy đăng nhập.', 423: 'Tài khoản đã bị khoá. Liên hệ ngân hàng để mở lại.' };
-      setError(known[err.status] ?? validationText(err.data?.errors) ?? err.message);
+      setError(err.message);
     }
   };
   return { error, busy, onSubmit };

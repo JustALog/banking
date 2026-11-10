@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
@@ -34,12 +35,14 @@ public class TransferController {
     }
 
     @PostMapping
-    public ResponseEntity<TransferResponse> create(
+    public ResponseEntity<?> create(
             @Valid @RequestBody CreateTransferRequest request,
             @RequestHeader(value = IDEMPOTENCY_KEY_HEADER, required = false) String idempotencyKey,
             Authentication authentication) {
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
-            return ResponseEntity.badRequest().build();
+            var problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Missing or empty Idempotency-Key header");
+            problem.setProperty("code", "IDEMPOTENCY_KEY_MISSING");
+            return ResponseEntity.badRequest().body(problem);
         }
         JwtAuthenticationToken jwtAuth = (JwtAuthenticationToken) authentication;
         UUID customerId = UUID.fromString(jwtAuth.getToken().getSubject());
