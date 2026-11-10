@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import vn.banking.auth.customer.CustomerService;
+import vn.banking.auth.security.TooManyAttemptsException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -24,6 +25,13 @@ public class ApiExceptionHandler {
     ProblemDetail badCredentials(CustomerService.BadCredentialsException e) {
         ProblemDetail d = ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, e.getMessage());
         d.setProperty("code", "BAD_CREDENTIALS");
+        return d;
+    }
+
+    @ExceptionHandler(TooManyAttemptsException.class)
+    ProblemDetail tooManyAttempts(TooManyAttemptsException e) {
+        ProblemDetail d = ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, e.getMessage());
+        d.setProperty("code", "TOO_MANY_ATTEMPTS");
         return d;
     }
 
