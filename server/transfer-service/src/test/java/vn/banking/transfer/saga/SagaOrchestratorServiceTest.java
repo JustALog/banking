@@ -273,6 +273,16 @@ class SagaOrchestratorServiceTest {
     }
 
     @Test
+    void replayByAccountNoWithDifferentNumberIsRejected() {
+        Transfer existing = new Transfer(idemKey, customerId, sourceId, destId, 250_000, "VND");
+        existing.setAccountDetails("VN0000000001", "VN0123456789", UUID.randomUUID());
+        when(transfers.findByCustomerIdAndIdempotencyKey(customerId, idemKey)).thenReturn(Optional.of(existing));
+        assertThatThrownBy(() -> service.start(idemKey, customerId, sourceId, null, "VN9999999999", 250_000, "VND", "Bearer t"))
+                .isInstanceOf(SagaOrchestratorService.IdempotencyConflictException.class);
+        verify(transfers, never()).save(any());
+    }
+
+    @Test
     void completedEventCarriesDestCustomer() {
         Transfer pending = pendingTransfer();
         UUID destCustomer = UUID.randomUUID();

@@ -65,8 +65,7 @@ public class SagaOrchestratorService {
         var existing = transfers.findByCustomerIdAndIdempotencyKey(customerId, idempotencyKey);
         if (existing.isPresent()) {
             Transfer t = existing.get();
-            if (!t.getSourceAccountId().equals(sourceAccountId) || !(destAccountNo != null ? destAccountNo.equals(t.getDestAccountNo()) : t.getDestAccountId().equals(destAccountId))
-                    || t.getAmount() != amount || !t.getCurrency().equals(currency)) {
+            if (!sameRequest(t, sourceAccountId, destAccountId, destAccountNo, amount, currency)) {
                 throw new IdempotencyConflictException("Idempotency-Key was already used with a different request");
             }
             return new StartResult(t, false);
@@ -92,6 +91,16 @@ public class SagaOrchestratorService {
 
         log.info("Saga {} started (PENDING) for transfer {}", transfer.getId(), idempotencyKey);
         return new StartResult(transfer, true);
+    }
+
+    /** The destination is compared by account number when the request used one, by id otherwise. */
+    private static boolean sameRequest(Transfer t, UUID sourceAccountId, UUID destAccountId, String destAccountNo,
+            long amount, String currency) {
+        boolean sameDest = destAccountNo != null
+                ? destAccountNo.equals(t.getDestAccountNo())
+                : t.getDestAccountId().equals(destAccountId);
+        return t.getSourceAccountId().equals(sourceAccountId) && sameDest
+                && t.getAmount() == amount && t.getCurrency().equals(currency);
     }
 
     public record StartResult(Transfer transfer, boolean created) {
