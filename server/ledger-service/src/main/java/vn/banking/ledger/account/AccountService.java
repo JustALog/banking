@@ -36,12 +36,10 @@ public class AccountService {
 
     @Transactional(readOnly = true)
     public Account getOwnedAccount(UUID accountId, UUID customerId) {
-        Account account = repository.findById(accountId)
+        // foreign accounts answer exactly like missing ones, so ids cannot be probed
+        return repository.findById(accountId)
+                .filter(account -> account.getCustomerId().equals(customerId))
                 .orElseThrow(() -> new AccountNotFoundException(accountId));
-        if (!account.getCustomerId().equals(customerId)) {
-            throw new NotAccountOwnerException(accountId, customerId);
-        }
-        return account;
     }
 
     @Transactional(readOnly = true)
@@ -87,13 +85,7 @@ public class AccountService {
 
     public static class AccountNotFoundException extends RuntimeException {
         public AccountNotFoundException(UUID id) {
-            super("Account not found: " + id);
-        }
-    }
-
-    public static class NotAccountOwnerException extends RuntimeException {
-        public NotAccountOwnerException(UUID accountId, UUID customerId) {
-            super("Account %s does not belong to customer %s".formatted(accountId, customerId));
+            super("Account not found");
         }
     }
 }

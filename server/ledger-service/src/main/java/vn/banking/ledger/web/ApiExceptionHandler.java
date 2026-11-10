@@ -22,13 +22,6 @@ public class ApiExceptionHandler {
         return d;
     }
 
-    @ExceptionHandler(AccountService.NotAccountOwnerException.class)
-    ProblemDetail forbidden(AccountService.NotAccountOwnerException e) {
-        ProblemDetail d = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, e.getMessage());
-        d.setProperty("code", "FORBIDDEN");
-        return d;
-    }
-
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ProblemDetail validation(MethodArgumentNotValidException e) {
         ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Request validation failed");

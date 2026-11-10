@@ -1,6 +1,7 @@
 package vn.banking.ledger.account;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -37,6 +38,23 @@ class AccountServiceTest {
 
         assertThat(account.getBalance()).isEqualTo(500);
         verify(entries).save(any(LedgerEntry.class));
+    }
+
+    @Test
+    void foreignAccountLooksMissing() {
+        UUID accountId = UUID.randomUUID();
+        UUID owner = UUID.randomUUID();
+        UUID otherCustomer = UUID.randomUUID();
+        Account account = new Account(owner, "VN0000000001", "VND");
+        when(accounts.findById(accountId)).thenReturn(Optional.of(account));
+
+        assertThatThrownBy(() -> new AccountService(accounts, entries).getOwnedAccount(accountId, otherCustomer))
+                .isInstanceOf(AccountService.AccountNotFoundException.class)
+                .satisfies(e -> assertThat(e.getMessage())
+                        .isEqualTo("Account not found")
+                        .doesNotContain(accountId.toString())
+                        .doesNotContain(otherCustomer.toString())
+                        .doesNotContain(owner.toString()));
     }
 
     @Test
