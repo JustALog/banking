@@ -17,6 +17,8 @@ import jakarta.validation.Valid;
 import vn.banking.auth.customer.Customer;
 import vn.banking.auth.customer.CustomerService;
 import vn.banking.auth.security.JwtService;
+import vn.banking.auth.security.LoginThrottle;
+import vn.banking.auth.security.TooManyAttemptsException;
 import vn.banking.auth.web.dto.CustomerResponse;
 import vn.banking.auth.web.dto.LoginRequest;
 import vn.banking.auth.web.dto.LoginResponse;
@@ -28,8 +30,10 @@ public class AuthController {
 
     private final CustomerService customerService;
     private final JwtService jwtService;
+    private final LoginThrottle throttle;
 
-    public AuthController(CustomerService customerService, JwtService jwtService) {
+    public AuthController(CustomerService customerService, JwtService jwtService, LoginThrottle throttle) {
+        this.throttle = throttle;
         this.customerService = customerService;
         this.jwtService = jwtService;
     }
@@ -46,7 +50,12 @@ public class AuthController {
 
     @PostMapping("/login")
     public LoginResponse login(@Valid @RequestBody LoginRequest request) {
+        String key = request.email().trim().toLowerCase();
+        if (!throttle.tryAcquire(key)) {
+            throw new TooManyAttemptsException();
+        }
         Customer customer = customerService.authenticate(request.email(), request.password());
+        throttle.reset(key);
         String token = jwtService.issueToken(customer);
         return new LoginResponse(
                 token,

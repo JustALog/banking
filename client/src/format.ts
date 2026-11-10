@@ -25,6 +25,7 @@ export const REASONS: Record<string, string> = {
   EMAIL_TAKEN: 'Email này đã được đăng ký. Hãy đăng nhập.',
   BAD_CREDENTIALS: 'Email hoặc mật khẩu không đúng.',
   CUSTOMER_LOCKED: 'Tài khoản đã bị khoá. Liên hệ ngân hàng để mở lại.',
+  TOO_MANY_ATTEMPTS: 'Bạn nhập sai quá nhiều lần. Thử lại sau 15 phút.',
   ACCOUNT_NOT_FOUND: 'Không tìm thấy tài khoản nhận.',
   CURRENCY_MISMATCH: 'Hai tài khoản khác loại tiền.',
   SELF_TRANSFER_NOT_ALLOWED: 'Không thể chuyển vào chính tài khoản nguồn.',
