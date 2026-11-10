@@ -38,6 +38,8 @@ export interface Transfer {
   id: string;
   sourceAccountId: string;
   destAccountId: string;
+  sourceAccountNo?: string | null;
+  destAccountNo?: string | null;
   amount: number;
   currency: string;
   status: TransferStatus;

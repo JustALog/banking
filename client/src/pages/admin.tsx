@@ -192,7 +192,7 @@ export function AdminTransfers() {
   const accounts = useLoad(get<Account[]>('/accounts/admin'));
   const [filter, setFilter] = useState('');
   const accountNo = new Map((accounts.data ?? []).map((a) => [a.id, formatAccountNo(a.accountNo)]));
-  const label = (id: string) => accountNo.get(id) ?? shortId(id);
+  const label = (id: string, no?: string | null) => (no ? formatAccountNo(no) : accountNo.get(id) ?? shortId(id));
   const counts = statusCounts(transfers.data ?? []);
 
   return (
@@ -219,8 +219,8 @@ export function AdminTransfers() {
                     {group.map((t) => (
                       <tr key={t.id}>
                         <td>{time(t.createdAt)}<br /><span className="acct hint">{shortId(t.id)}</span></td>
-                        <td className="acct">{label(t.sourceAccountId)}</td>
-                        <td className="acct">{label(t.destAccountId)}</td>
+                        <td className="acct">{label(t.sourceAccountId, t.sourceAccountNo)}</td>
+                        <td className="acct">{label(t.destAccountId, t.destAccountNo)}</td>
                         <td className="num"><Amount value={t.amount} currency={t.currency} struck={t.status === 'FAILED'} /></td>
                         <td><StatusBadge status={t.status} />{t.failureReason && <p className="hint" style={{ marginTop: 6, maxWidth: 260 }}>{reasonText(t.failureReason)}</p>}</td>
                       </tr>

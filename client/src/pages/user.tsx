@@ -6,8 +6,8 @@ import { useAccounts, useLoad, useSession } from '../hooks.ts';
 import type { Account, Customer, Entry, Message, Notification, Transfer } from '../types.ts';
 import { Amount, CopyButton, DayGroups, EmptyState, Loaded, PageHead, StatusBadge } from '../ui.tsx';
 
-export const accountLabel = (accounts: Account[] | null | undefined, id: string) => {
-  const no = accounts?.find((a) => a.id === id)?.accountNo;
+export const accountLabel = (accounts: Account[] | null | undefined, id: string, knownNo?: string | null) => {
+  const no = knownNo ?? accounts?.find((a) => a.id === id)?.accountNo;
   return no ? formatAccountNo(no) : undefined;
 };
 
@@ -27,7 +27,7 @@ export function Dashboard() {
           <p className="muted">Xin chào, {customer.fullName}</p>
           <div className="row">
             <Link className="btn btn-frost" to="/app/accounts">Mở tài khoản</Link>
-            {list.length === 1 && <CopyButton text={list[0].id} label="Sao chép mã nhận tiền" className="btn btn-frost" />}
+            {list.length === 1 && <CopyButton text={list[0].accountNo} label="Sao chép số tài khoản" className="btn btn-frost" />}
             <Link className="btn btn-primary" to="/app/transfer">Chuyển tiền</Link>
           </div>
         </div>
@@ -102,7 +102,7 @@ export function TransferList({ transfers, accounts }: { transfers: Transfer[]; a
         <li key={t.id}>
           <Link className="row-link" to={`/app/transactions/${t.id}`}>
             <span className="row-main">
-              <span>Đến <span className="acct">{accountLabel(accounts, t.destAccountId) ?? shortId(t.destAccountId)}</span></span>
+              <span>Đến <span className="acct">{accountLabel(accounts, t.destAccountId, t.destAccountNo) ?? shortId(t.destAccountId)}</span></span>
               <span className="hint">{time(t.createdAt)}</span>
             </span>
             <span className="row-side">
@@ -213,9 +213,9 @@ export function AccountDetail() {
             </section>
             <section className="object stack">
               <h2>Nhận tiền vào tài khoản này</h2>
-              <p className="muted">Gửi mã nhận tiền cho người chuyển. Họ dán mã này ở bước chọn người nhận.</p>
-              <p className="break acct hint" style={{ color: 'var(--fg)' }}>{a.id}</p>
-              <div><CopyButton text={a.id} label="Sao chép mã nhận tiền" /></div>
+              <p className="muted">Gửi số tài khoản cho người chuyển. Họ nhập số này ở bước chọn người nhận.</p>
+              <p className="break acct hint" style={{ color: 'var(--fg)' }}>{formatAccountNo(a.accountNo)}</p>
+              <div><CopyButton text={a.accountNo} label="Sao chép số tài khoản" /></div>
             </section>
           </div>
         </>

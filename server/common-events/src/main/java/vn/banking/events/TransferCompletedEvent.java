@@ -11,9 +11,14 @@ public record TransferCompletedEvent(
     UUID customerId,
     long amount,
     String currency,
-    Instant occurredAt) {
+    Instant occurredAt,
+    UUID destCustomerId) {
+
+    public TransferCompletedEvent(UUID transferId, UUID customerId, long amount, String currency, Instant occurredAt) {
+        this(transferId, customerId, amount, currency, occurredAt, null);
+    }
 
     public TransferCompletedEvent(UUID transferId, long amount, String currency, Instant occurredAt) {
-        this(transferId, null, amount, currency, occurredAt);
+        this(transferId, null, amount, currency, occurredAt, null);
     }
 }

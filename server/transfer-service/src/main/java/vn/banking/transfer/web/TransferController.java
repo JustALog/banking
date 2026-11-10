@@ -52,11 +52,11 @@ public class TransferController {
         SagaOrchestratorService.StartResult result;
         try {
             result = saga.start(idempotencyKey, customerId, request.sourceAccountId(),
-                    request.destAccountId(), request.amount(), request.currency(), bearerToken);
+                    request.destAccountId(), request.destAccountNo(), request.amount(), request.currency(), bearerToken);
         } catch (DataIntegrityViolationException e) {
             // Concurrent request with the same key won the insert; retry once in a new transaction to read it.
             result = saga.start(idempotencyKey, customerId, request.sourceAccountId(),
-                    request.destAccountId(), request.amount(), request.currency(), bearerToken);
+                    request.destAccountId(), request.destAccountNo(), request.amount(), request.currency(), bearerToken);
         }
 
         // 202 for a newly accepted saga; 200 when an idempotent replay returns the original

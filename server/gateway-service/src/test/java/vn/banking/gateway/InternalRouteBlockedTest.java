@@ -28,6 +28,7 @@ class InternalRouteBlockedTest {
     @Test
     void internalAccountLookupIsBlocked() {
         assertThat(firstMatchingRoute("/accounts/internal/123e4567-e89b-12d3-a456-426614174000")).isEqualTo("block-internal");
+        assertThat(firstMatchingRoute("/accounts/internal/by-no/VN0000000000")).isEqualTo("block-internal");
     }
 
     @Test

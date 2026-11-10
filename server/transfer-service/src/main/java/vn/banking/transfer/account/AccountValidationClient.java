@@ -36,6 +36,18 @@ public class AccountValidationClient {
         }
     }
 
+    public LedgerAccount fetchByNo(String accountNo, String bearerToken) {
+        try {
+            return restClient.get()
+                    .uri("/accounts/internal/by-no/{no}", accountNo)
+                    .header(HttpHeaders.AUTHORIZATION, bearerToken)
+                    .retrieve()
+                    .body(LedgerAccount.class);
+        } catch (HttpClientErrorException.NotFound e) {
+            return null;
+        }
+    }
+
     public record LedgerAccount(UUID id, String accountNo, UUID customerId, String currency, long balance) {
     }
 }

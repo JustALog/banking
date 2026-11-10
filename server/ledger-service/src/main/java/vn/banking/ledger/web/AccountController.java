@@ -76,6 +76,11 @@ public class AccountController {
         return AccountResponse.from(accountService.getAccountUnchecked(id));
     }
 
+    @GetMapping("/internal/by-no/{accountNo}")
+    public AccountResponse internalGetByNo(@PathVariable String accountNo) {
+        return AccountResponse.from(accountService.getAccountByNo(accountNo));
+    }
+
     static UUID currentCustomer(Authentication authentication) {
         JwtAuthenticationToken jwtAuth = (JwtAuthenticationToken) authentication;
         return UUID.fromString(jwtAuth.getToken().getSubject());

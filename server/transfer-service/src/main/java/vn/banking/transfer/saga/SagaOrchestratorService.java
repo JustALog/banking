@@ -61,12 +61,11 @@ public class SagaOrchestratorService {
      */
     @Transactional
     public StartResult start(String idempotencyKey, UUID customerId, UUID sourceAccountId,
-            UUID destAccountId, long amount, String currency, String bearerToken) {
+            UUID destAccountId, String destAccountNo, long amount, String currency, String bearerToken) {
         var existing = transfers.findByCustomerIdAndIdempotencyKey(customerId, idempotencyKey);
         if (existing.isPresent()) {
             Transfer t = existing.get();
-            if (!t.getSourceAccountId().equals(sourceAccountId) || !t.getDestAccountId().equals(destAccountId)
-                    || t.getAmount() != amount || !t.getCurrency().equals(currency)) {
+            if (!sameRequest(t, sourceAccountId, destAccountId, destAccountNo, amount, currency)) {
                 throw new IdempotencyConflictException("Idempotency-Key was already used with a different request");
             }
             return new StartResult(t, false);
@@ -75,9 +74,12 @@ public class SagaOrchestratorService {
         if (!customerStatus.isActive(bearerToken)) {
             throw new AccountValidationException("CUSTOMER_LOCKED", "Customer is locked");
         }
-        validateAccounts(customerId, sourceAccountId, destAccountId, currency, bearerToken);
+        var accounts = validateAccounts(customerId, sourceAccountId, destAccountId, destAccountNo, currency, bearerToken);
+        var dest = accounts[1];
+        destAccountId = dest.id();
 
         Transfer transfer = new Transfer(idempotencyKey, customerId, sourceAccountId, destAccountId, amount, currency);
+        transfer.setAccountDetails(accounts[0].accountNo(), dest.accountNo(), dest.customerId());
         transfer = transfers.save(transfer);
 
         outbox.save(OutboxEvent.forTopic(
@@ -89,6 +91,16 @@ public class SagaOrchestratorService {
 
         log.info("Saga {} started (PENDING) for transfer {}", transfer.getId(), idempotencyKey);
         return new StartResult(transfer, true);
+    }
+
+    /** The destination is compared by account number when the request used one, by id otherwise. */
+    private static boolean sameRequest(Transfer t, UUID sourceAccountId, UUID destAccountId, String destAccountNo,
+            long amount, String currency) {
+        boolean sameDest = destAccountNo != null
+                ? destAccountNo.equals(t.getDestAccountNo())
+                : t.getDestAccountId().equals(destAccountId);
+        return t.getSourceAccountId().equals(sourceAccountId) && sameDest
+                && t.getAmount() == amount && t.getCurrency().equals(currency);
     }
 
     public record StartResult(Transfer transfer, boolean created) {
@@ -137,7 +149,8 @@ public class SagaOrchestratorService {
                     Topics.TRANSFER_COMPLETED,
                     event.sourceAccountId().toString(),
                     EventJson.write(new TransferCompletedEvent(
-                            transfer.getId(), transfer.getCustomerId(), transfer.getAmount(), transfer.getCurrency(), Instant.now()))));
+                            transfer.getId(), transfer.getCustomerId(), transfer.getAmount(), transfer.getCurrency(), Instant.now(),
+                            transfer.getDestCustomerId()))));
             log.info("Saga {} COMPLETED", transfer.getId());
         } else {
             transfer.markFailed(partnerResult.failureReason());
@@ -159,8 +172,9 @@ public class SagaOrchestratorService {
         log.warn("Saga {} FAILED: {}", transfer.getId(), reason);
     }
 
-    private void validateAccounts(UUID customerId, UUID sourceAccountId, UUID destAccountId,
-            String currency, String bearerToken) {
+    /** Returns {source, dest}. */
+    private AccountValidationClient.LedgerAccount[] validateAccounts(UUID customerId, UUID sourceAccountId,
+            UUID destAccountId, String destAccountNo, String currency, String bearerToken) {
         var source = accountValidation.fetch(sourceAccountId, bearerToken);
         if (source == null) {
             throw new AccountValidationException("SOURCE_ACCOUNT_INVALID", "Source account not found: " + sourceAccountId);
@@ -174,13 +188,19 @@ public class SagaOrchestratorService {
         if (sourceAccountId.equals(destAccountId)) {
             throw new AccountValidationException("SELF_TRANSFER_NOT_ALLOWED", "Source and destination accounts must differ");
         }
-        var dest = accountValidation.fetch(destAccountId, bearerToken);
+        var dest = destAccountNo != null
+                ? accountValidation.fetchByNo(destAccountNo, bearerToken)
+                : accountValidation.fetch(destAccountId, bearerToken);
         if (dest == null) {
-            throw new AccountValidationException("ACCOUNT_NOT_FOUND", "Destination account not found: " + destAccountId);
+            throw new AccountValidationException("ACCOUNT_NOT_FOUND", "Destination account not found");
+        }
+        if (sourceAccountId.equals(dest.id())) {
+            throw new AccountValidationException("SELF_TRANSFER_NOT_ALLOWED", "Source and destination accounts must differ");
         }
         if (!currency.equals(dest.currency())) {
             throw new AccountValidationException("CURRENCY_MISMATCH", "Currency mismatch with destination account");
         }
+        return new AccountValidationClient.LedgerAccount[] { source, dest };
     }
 
     @Transactional(readOnly = true)

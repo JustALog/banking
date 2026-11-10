@@ -47,6 +47,12 @@ public class AccountService {
     }
 
     @Transactional(readOnly = true)
+    public Account getAccountByNo(String accountNo) {
+        return repository.findByAccountNo(accountNo)
+                .orElseThrow(() -> new AccountNotFoundException(null));
+    }
+
+    @Transactional(readOnly = true)
     public Account getAccountUnchecked(UUID accountId) {
         return repository.findById(accountId)
                 .orElseThrow(() -> new AccountNotFoundException(accountId));
