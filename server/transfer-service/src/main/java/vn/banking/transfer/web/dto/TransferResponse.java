@@ -16,9 +16,10 @@ public record TransferResponse(
         String status,
         String failureReason,
         Instant createdAt,
-        Instant updatedAt) {
+        Instant updatedAt,
+        String direction) {
 
-    public static TransferResponse from(Transfer transfer) {
+    public static TransferResponse from(Transfer transfer, UUID viewer) {
         return new TransferResponse(
                 transfer.getId(),
                 transfer.getSourceAccountId(),
@@ -30,6 +31,7 @@ public record TransferResponse(
                 transfer.getStatus().name(),
                 transfer.getFailureReason(),
                 transfer.getCreatedAt(),
-                transfer.getUpdatedAt());
+                transfer.getUpdatedAt(),
+                viewer == null || viewer.equals(transfer.getCustomerId()) ? "OUT" : "IN");
     }
 }

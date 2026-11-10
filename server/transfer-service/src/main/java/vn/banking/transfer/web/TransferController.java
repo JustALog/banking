@@ -62,25 +62,27 @@ public class TransferController {
         // 202 for a newly accepted saga; 200 when an idempotent replay returns the original
         return ResponseEntity
                 .status(result.created() ? HttpStatus.ACCEPTED : HttpStatus.OK)
-                .body(TransferResponse.from(result.transfer()));
+                .body(TransferResponse.from(result.transfer(), customerId));
     }
 
     @GetMapping("/{id}")
     public TransferResponse get(@PathVariable UUID id, Authentication authentication) {
-        return TransferResponse.from(saga.getOwned(id, currentCustomer(authentication)));
+        UUID me = currentCustomer(authentication);
+        return TransferResponse.from(saga.getOwned(id, me), me);
     }
 
     @GetMapping
     public List<TransferResponse> myTransfers(Authentication authentication) {
-        return saga.listFor(currentCustomer(authentication)).stream()
-                .map(TransferResponse::from)
+        UUID me = currentCustomer(authentication);
+        return saga.listFor(me).stream()
+                .map(t -> TransferResponse.from(t, me))
                 .toList();
     }
 
     /** ROLE_ADMIN only (enforced in SecurityConfig). */
     @GetMapping("/admin")
     public List<TransferResponse> allTransfers() {
-        return saga.listAll().stream().map(TransferResponse::from).toList();
+        return saga.listAll().stream().map(t -> TransferResponse.from(t, null)).toList();
     }
 
     static UUID currentCustomer(Authentication authentication) {

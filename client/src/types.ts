@@ -40,6 +40,7 @@ export interface Transfer {
   destAccountId: string;
   sourceAccountNo?: string | null;
   destAccountNo?: string | null;
+  direction?: 'IN' | 'OUT';
   amount: number;
   currency: string;
   status: TransferStatus;

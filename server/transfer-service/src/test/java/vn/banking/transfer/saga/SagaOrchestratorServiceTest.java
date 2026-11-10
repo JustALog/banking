@@ -302,9 +302,50 @@ class SagaOrchestratorServiceTest {
 
     @Test
     void legacyTransferWithNullAccountNoMapsToResponse() {
-        var r = vn.banking.transfer.web.dto.TransferResponse.from(pendingTransfer());
+        var r = vn.banking.transfer.web.dto.TransferResponse.from(pendingTransfer(), customerId);
         assertThat(r.destAccountNo()).isNull();
         assertThat(r.sourceAccountNo()).isNull();
+    }
+
+    @Test
+    void recipientCanReadCompletedIncoming() {
+        UUID recipient = UUID.randomUUID();
+        Transfer t = pendingTransfer();
+        t.setAccountDetails("A", "B", recipient);
+        t.markCompleted();
+        when(transfers.findById(t.getId())).thenReturn(Optional.of(t));
+        assertThat(service.getOwned(t.getId(), recipient)).isSameAs(t);
+    }
+
+    @Test
+    void strangerStillGets404() {
+        Transfer t = pendingTransfer();
+        t.setAccountDetails("A", "B", UUID.randomUUID());
+        t.markCompleted();
+        when(transfers.findById(t.getId())).thenReturn(Optional.of(t));
+        org.junit.jupiter.api.Assertions.assertThrows(SagaOrchestratorService.TransferNotFoundException.class,
+                () -> service.getOwned(t.getId(), UUID.randomUUID()));
+    }
+
+    @Test
+    void recipientCannotSeePendingIncoming() {
+        UUID recipient = UUID.randomUUID();
+        Transfer t = pendingTransfer();
+        t.setAccountDetails("A", "B", recipient);
+        when(transfers.findById(t.getId())).thenReturn(Optional.of(t));
+        org.junit.jupiter.api.Assertions.assertThrows(SagaOrchestratorService.TransferNotFoundException.class,
+                () -> service.getOwned(t.getId(), recipient));
+    }
+
+    @Test
+    void responseDirectionForViewer() {
+        UUID recipient = UUID.randomUUID();
+        Transfer t = pendingTransfer();
+        t.setAccountDetails("A", "B", recipient);
+        
+        assertThat(vn.banking.transfer.web.dto.TransferResponse.from(t, customerId).direction()).isEqualTo("OUT");
+        assertThat(vn.banking.transfer.web.dto.TransferResponse.from(t, recipient).direction()).isEqualTo("IN");
+        assertThat(vn.banking.transfer.web.dto.TransferResponse.from(t, null).direction()).isEqualTo("OUT");
     }
 
     private Transfer pendingTransfer() {

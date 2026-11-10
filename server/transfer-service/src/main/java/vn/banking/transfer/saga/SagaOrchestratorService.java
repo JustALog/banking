@@ -207,7 +207,10 @@ public class SagaOrchestratorService {
     public Transfer getOwned(UUID transferId, UUID customerId) {
         Transfer transfer = transfers.findById(transferId)
                 .orElseThrow(() -> new TransferNotFoundException(transferId));
-        if (!transfer.getCustomerId().equals(customerId)) {
+        boolean sender = transfer.getCustomerId().equals(customerId);
+        boolean completedRecipient = customerId.equals(transfer.getDestCustomerId())
+                && transfer.getStatus() == Transfer.Status.COMPLETED;
+        if (!sender && !completedRecipient) {
             throw new TransferNotFoundException(transferId); // don't reveal existence
         }
         return transfer;
@@ -215,7 +218,7 @@ public class SagaOrchestratorService {
 
     @Transactional(readOnly = true)
     public java.util.List<Transfer> listFor(UUID customerId) {
-        return transfers.findByCustomerIdOrderByCreatedAtDesc(customerId);
+        return transfers.findVisibleTo(customerId, Transfer.Status.COMPLETED);
     }
 
     @Transactional(readOnly = true)

@@ -98,21 +98,23 @@ function AccountCard({ account }: { account: Account }) {
 export function TransferList({ transfers, accounts }: { transfers: Transfer[]; accounts: Account[] | null }) {
   return (
     <DayGroups items={transfers}>
-      {(t) => (
+      {(t) => { const incoming = t.direction === 'IN'; return (
         <li key={t.id}>
           <Link className="row-link" to={`/app/transactions/${t.id}`}>
             <span className="row-main">
-              <span>Đến <span className="acct">{accountLabel(accounts, t.destAccountId, t.destAccountNo) ?? shortId(t.destAccountId)}</span></span>
+              {incoming
+                ? <span>Từ <span className="acct">{t.sourceAccountNo ? formatAccountNo(t.sourceAccountNo) : (accountLabel(accounts, t.sourceAccountId, t.sourceAccountNo) ?? shortId(t.sourceAccountId))}</span></span>
+                : <span>Đến <span className="acct">{accountLabel(accounts, t.destAccountId, t.destAccountNo) ?? shortId(t.destAccountId)}</span></span>}
               <span className="hint">{time(t.createdAt)}</span>
             </span>
             <span className="row-side">
               {/* A failed transfer never moved money, so it is struck through instead of signed. */}
-              <Amount value={t.amount} currency={t.currency} sign={t.status === 'FAILED' ? undefined : '−'} struck={t.status === 'FAILED'} />
+              <Amount value={t.amount} currency={t.currency} sign={t.status === 'FAILED' ? undefined : incoming ? '+' : '−'} struck={t.status === 'FAILED'} />
               <StatusBadge status={t.status} />
             </span>
           </Link>
         </li>
-      )}
+      ); }}
     </DayGroups>
   );
 }
