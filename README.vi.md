@@ -6,14 +6,12 @@ Nền tảng ngân hàng và thanh toán phân tán theo `Architect_diagram.draw
 - **Round 1**: Luồng chuyển tiền lõi: Auth/Customer → Transfer (saga + outbox + Debezium CDC) → Fraud (stub) → Ledger (chủ sở hữu duy nhất của số dư) → gọi Partner Bank (Resilience4j).
 - **Round 2**: **API Gateway** (Spring Cloud Gateway, xác thực JWT, bắt buộc Idempotency-Key), **Notification Service** (`notify_db`, nhận sự kiện hoàn tất/thất bại, giả lập Email/SMS), **Fraud Service có lưu trữ và luật velocity thật** (`fraud_db`), và **bù trừ hoàn tác Ledger** khi ngân hàng đối tác lỗi sau khi đã ghi sổ.
 - **Round 3**: **Kubernetes** (kind, Helm, Kafka KRaft 3 broker bằng Strimzi, CloudNativePG primary + standby, NGINX Ingress, HPA/PDB/NetworkPolicy), **Backup** (Barman Cloud plugin → S3, hằng ngày + WAL liên tục, PITR), **Quan sát** (kube-prometheus-stack + dashboard Grafana, Fluent Bit → ECK Elasticsearch/Kibana).
-- **Test console**: giao diện Vite + TypeScript thuần trong `client/` để thử đăng nhập, tài khoản, chuyển tiền, thông báo, các kịch bản lỗi có sẵn và nhật ký API trực tiếp.
-
-SPA React nằm trong `web/`; `client/` vẫn là test console TypeScript không dùng framework.
+- **Website**: giao diện React 19 + Vite trong `client/` cho khách hàng và quản trị, được nginx phục vụ trong container image.
 
 ## Cấu trúc
 
 ```
-client/                 test console trên trình duyệt (React 19 + Vite, JS thuần, :5173)
+client/                 website: React 19 + React Router 7 + Vite, JS thuần (:5173)
   DESIGN.md             token giao diện và ghi chú component
   src/main.jsx          điểm vào, định tuyến
   src/shell.jsx, ui.jsx, hooks.js   bố cục, component dùng chung, hook
@@ -21,14 +19,7 @@ client/                 test console trên trình duyệt (React 19 + Vite, JS t
   src/gateway.js        wrapper fetch tới gateway, xử lý JWT
   src/format.js         định dạng tiền/ngày (có unit test)
   vite.config.js        dev server :5173, proxy các đường dẫn API tới gateway
-
-web/                    website ngân hàng cho khách hàng + quản trị (React + TypeScript, :5174)
-  src/types.ts          kiểu response API (phản chiếu các record *Response của service)
-  src/gateway.ts        gọi gateway: header JWT, session storage, thông báo lỗi
-  src/format.ts         định dạng tiền/ngày, văn bản trạng thái giao dịch và lý do thất bại
-  src/components.tsx    shell, biên lai, hook dùng chung (useLoad, useSession)
-  src/pages/            public.tsx, user.tsx, admin.tsx
-  Dockerfile            build trên Node 14 → nginx (SPA fallback + proxy API)
+  Dockerfile, deploy/   build trên Node 22 -> nginx (SPA fallback + proxy API)
 
 server/
   common-events/        tên topic Kafka + event record (hợp đồng dùng chung)
@@ -56,7 +47,7 @@ Danh sách API đầy đủ theo từng service (vendor), kèm ví dụ request/
 ## Yêu cầu
 
 - JDK 21+, Docker Desktop (hoặc docker compose v2 bất kỳ)
-- Node.js `>=14.18.0` (CI kiểm thử 14.18 → 22), cùng npm, cho `web/` và `client/`
+- Node.js `>=20.19` (CI kiểm thử 20 và 22), cùng npm, cho `client/`
 - bash + curl (smoke script dùng python3 hoặc node để đọc JSON, dùng cái nào cũng được)
 
 ## Chạy nhanh
@@ -97,7 +88,7 @@ Kafka Connect REST ở cổng host **8086**.
 
 Swagger UI mỗi service: `http://localhost:808{1..5}/swagger-ui.html`.
 
-Về test console trên trình duyệt, xem [Test console (client/)](#test-console-client).
+Về website, xem [Website (client/)](#website-client).
 
 ## Tiền được chuyển và khôi phục thế nào
 
@@ -194,54 +185,35 @@ Giới hạn đã biết:
   WHERE t.status = 'PENDING' AND o.aggregatetype = 'transfer.requested';` (trên `transfer_db`).
 - ingress-nginx đã ngừng phát triển ở upstream (2026); đối tượng Ingress là chuẩn, nên đổi controller chỉ là thay đổi values.
 
-## Website (web/)
+## Website (client/)
 
-Website ngân hàng dành cho khách hàng: React 19 + React Router 6 + TypeScript (strict) trên Vite 4, chỉ gọi gateway. Toolchain được ghim ở các phiên bản vẫn chạy được trên Node 14 (Vite 4.5, `@vitejs/plugin-react` 4, TypeScript 5.9, Vitest 0.34); lockfile là `lockfileVersion: 2` để npm 6 (đi kèm Node 14) và npm mới hơn đều đọc được.
+Website ngân hàng cho khách hàng và quản trị: React 19 + React Router 7 trên Vite 8, JavaScript thuần, chỉ gọi gateway. Vite 8 cần Node 20.19 trở lên.
 
-- **Công khai:** trang giới thiệu, đăng nhập và đăng ký (tự mở tài khoản VND đầu tiên).
-- **Khách hàng (`/app`):** tổng quan với tổng số dư theo loại tiền và thẻ tài khoản; danh sách tài khoản và mở tài khoản mới; chi tiết tài khoản kèm sao kê và mã tài khoản để chia sẻ khi nhận tiền; chuyển tiền có bước xem lại và `Idempotency-Key` riêng cho mỗi giao dịch; biên lai trực tiếp polling đến khi saga kết thúc; lịch sử giao dịch có lọc trạng thái; thông báo; hồ sơ.
-- **Quản trị (`/admin`, chỉ `ROLE_ADMIN`):** khách hàng có tìm kiếm và khóa/mở khóa; toàn bộ tài khoản kèm chủ sở hữu và nạp tiền; toàn bộ giao dịch có lọc trạng thái.
+- **Công khai:** trang giới thiệu, đăng nhập và đăng ký.
+- **Khách hàng (`/app`):** tổng quan, tài khoản và chi tiết tài khoản, chuyển tiền, lịch sử và chi tiết giao dịch, thông báo, hồ sơ.
+- **Quản trị (`/admin`, chỉ `ROLE_ADMIN`):** khách hàng (`/admin`), tài khoản (`/admin/accounts`), giao dịch (`/admin/transfers`). Đăng nhập bằng `admin@banking.local` / `admin12345` (đặt bởi `BANKING_ADMIN_EMAIL` / `BANKING_ADMIN_PASSWORD` trong docker compose; bỏ trống thì không tạo admin).
 
-```bash
-cd web
-npm install
-npm run dev     # http://localhost:5174 (GATEWAY_URL ghi đè http://localhost:8080)
-npm run typecheck   # tsc --noEmit (strict)
-npm test            # unit test cho format.ts và gateway.ts (vitest)
-npm run build       # kiểm tra kiểu, rồi tạo bundle tĩnh trong dist/
-```
-
-Triển khai dạng container (build trên Node 14, phục vụ bằng nginx, các đường dẫn API được proxy tới gateway):
-
-```bash
-docker compose -f server/docker/docker-compose.yml --profile web up -d --build web   # http://localhost:5174
-# hoặc chạy riêng:
-docker build -t banking/web web/ && docker run -p 5174:80 -e GATEWAY_URL=http://host.docker.internal:8080 banking/web
-```
-
-Phiên (JWT + hồ sơ) được lưu trong `sessionStorage`: tải lại trang vẫn giữ đăng nhập, đóng tab thì đăng xuất.
-
-## Test console (client/)
-
-Console nhẹ bằng Vite + TypeScript thuần để thử hệ thống qua gateway. Nó giữ JWT trong bộ nhớ, hiển thị mọi request/response trong nhật ký API trực tiếp, và có bốn tab cho mọi người dùng cùng ba tab quản trị:
-
-- **Tài khoản** — mở tài khoản, xem số dư, xem bút toán sổ cái. Không có API nạp tiền; tab này in lệnh `psql` để nạp số dư thử.
-- **Chuyển tiền** — gửi giao dịch kèm `Idempotency-Key`, rồi theo dõi saga polling đến `COMPLETED` hoặc `FAILED`.
-- **Thông báo** — thông báo do notification-service lưu.
-- **Quản trị: Khách hàng / Tài khoản / Giao dịch** — chỉ hiện với `ROLE_ADMIN`: liệt kê mọi khách hàng và khóa/mở khóa, liệt kê mọi tài khoản và nạp tiền vào, liệt kê mọi giao dịch. Đăng nhập bằng `admin@banking.local` / `admin12345` (đặt bởi `BANKING_ADMIN_EMAIL` / `BANKING_ADMIN_PASSWORD` trong docker compose; bỏ trống thì không tạo admin).
-- **Kịch bản kiểm thử** — kiểm tra một cú nhấp: USER nhận 403 ở API quản trị, thiếu JWT, route nội bộ bị chặn, thiếu/lặp idempotency key, ngưỡng gian lận, không đủ tiền và bị từ chối do velocity. Ca đối tác timeout/hoàn tác làm thủ công vì cần khởi động lại service.
-
-Yêu cầu: Node.js `>=14.18.0`, cùng npm. Hãy chạy backend trước (`bash server/scripts/demo.sh`), rồi:
+Hãy chạy backend trước (`bash server/scripts/demo.sh`), rồi:
 
 ```bash
 cd client
 npm install
-npm run dev     # http://localhost:5173
+npm run dev     # http://localhost:5173 (GATEWAY_URL ghi đè http://localhost:8080)
+npm test        # unit test cho src/format.js (node --test)
+npm run build   # bundle tĩnh trong dist/
 ```
 
-Vite proxy `/auth`, `/accounts`, `/transfers` và `/notifications` tới gateway, nên trình duyệt không bao giờ gọi trực tiếp các service và không cần cấu hình CORS. Đổi đích bằng `GATEWAY_URL=http://host:8080 npm run dev`.
+Vite proxy `/auth`, `/accounts`, `/transfers` và `/notifications` tới gateway, nên trình duyệt không bao giờ gọi trực tiếp các service và không cần cấu hình CORS.
 
-Console Vite + React để thử hệ thống qua gateway. Không dùng TypeScript, nên ở đây không có `npm run typecheck`. `npm test` chạy unit test Node cho `src/format.js`, và `npm run build` xuất file tĩnh vào `client/dist/`.
+Chạy dạng container (build trên Node 22, phục vụ bằng nginx, các đường dẫn API được proxy tới gateway):
+
+```bash
+docker compose -f server/docker/docker-compose.yml --profile web up -d --build web   # http://localhost:5173
+# hoặc chạy riêng:
+docker build -t banking/web client/ && docker run -p 5173:80 -e GATEWAY_URL=http://host.docker.internal:8080 banking/web
+```
+
+Phiên (JWT + hồ sơ) được lưu trong `sessionStorage`: tải lại trang vẫn giữ đăng nhập, đóng tab thì đăng xuất.
 
 ## CI/CD
 
@@ -249,10 +221,10 @@ Console Vite + React để thử hệ thống qua gateway. Không dùng TypeScri
 
 | Job | Kiểm tra gì |
 |---|---|
-| `frontend` | `web/` và `client/` trên Node 14.18.0, 14.x, 16, 18, 20, 22: `npm ci` → `npm run typecheck` → `npm test` → `npm run build` → smoke `vite preview` (trang gốc + deep link SPA). `dist/` của Node 14 được giữ làm artifact. |
+| `frontend` | `client/` trên Node 20.x và 22.x: `npm ci` → `npm test` → `npm run build` → smoke `vite preview` (trang gốc + deep link SPA). `dist/` của Node 22 được giữ làm artifact. |
 | `backend` | JDK 21, khóa RS256 dùng tạm, `mvn verify` (unit test mọi module + test context của gateway). |
 | `helm` | `helm lint` chart `banking`, với values đầy đủ và `PROFILE=demo`. |
-| `images` | Build 6 image service và image `web` (build stage dùng Node 14); chạy image web và kiểm tra `/healthz`, SPA fallback và proxy gateway. |
+| `images` | Build 6 image service và image `web` (build từ `client/`, build stage Node 22); chạy image web và kiểm tra `/healthz`, SPA fallback và proxy gateway. |
 
 Khi push lên `main` hoặc tag `v*`, `images` cũng đẩy lên GHCR dưới dạng `ghcr.io/<owner>/banking/<image>` với các tag
 `latest` (main), `sha-<short>`, tên nhánh và semver của tag. Đường dẫn khớp bố cục `<image.repository>/<service>` của chart,
@@ -262,4 +234,4 @@ hãy công khai chúng hoặc thêm image pull secret). Không có gì được 
 
 ## Lộ trình
 
-1. React SPA: đã xong trong `web/`. `client/` hiện vẫn là test console.
+1. Website là `client/`. Site TypeScript `web/` cũ đã bị xóa.
