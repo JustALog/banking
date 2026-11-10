@@ -20,6 +20,11 @@ export const STATUS: Record<TransferStatus, { label: string; tone: string }> = {
 export const REASONS: Record<string, string> = {
   FRAUD_REJECTED: 'Giao dịch bị chặn bởi kiểm tra an toàn (số tiền vượt ngưỡng hoặc chuyển quá nhiều lần trong thời gian ngắn).',
   INSUFFICIENT_FUNDS: 'Số dư tài khoản nguồn không đủ.',
+  NOT_FOUND: 'Không tìm thấy dữ liệu, hoặc bạn không có quyền xem.',
+  IDEMPOTENCY_KEY_REUSED: 'Yêu cầu này đã được gửi với nội dung khác. Hãy tải lại trang rồi thử lại.',
+  IDEMPOTENCY_KEY_MISSING: 'Yêu cầu thiếu mã chống trùng. Hãy tải lại trang rồi thử lại.',
+  SELF_LOCK: 'Bạn không thể tự khoá tài khoản quản trị của mình.',
+  UPSTREAM_UNAVAILABLE: 'Hệ thống đang bận. Vui lòng thử lại sau ít phút.',
   SOURCE_ACCOUNT_INVALID: 'Tài khoản nguồn không hợp lệ.',
   EMAIL_TAKEN: 'Email này đã được đăng ký. Hãy đăng nhập.',
   BAD_CREDENTIALS: 'Email hoặc mật khẩu không đúng.',
