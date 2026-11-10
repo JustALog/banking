@@ -79,6 +79,9 @@ public class AccountService {
         if (entries.existsByTransferIdAndAccountId(reference, accountId)) {
             return account;
         }
+        if (entries.existsByTransferId(reference)) {
+            throw new DepositReferenceConflictException();
+        }
         account.credit(amount);
         entries.save(new LedgerEntry(reference, account.getId(), LedgerEntry.Direction.CREDIT, amount));
         return account;
@@ -100,6 +103,12 @@ public class AccountService {
     public static class AccountNotFoundException extends RuntimeException {
         public AccountNotFoundException(UUID id) {
             super("Account not found");
+        }
+    }
+
+    public static class DepositReferenceConflictException extends RuntimeException {
+        public DepositReferenceConflictException() {
+            super("Idempotency-Key already used by another entry");
         }
     }
 

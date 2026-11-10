@@ -2,6 +2,10 @@ server:
   port: 8083
 
 spring:
+  http:
+    client:
+      connect-timeout: 2s
+      read-timeout: 5s
   data:
     web:
       pageable:

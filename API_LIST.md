@@ -25,8 +25,32 @@ Mọi API `/…/admin/**` cần `ROLE_ADMIN`, người dùng thường nhận `4
 tài khoản admin được auth-service tạo lúc khởi động từ `BANKING_ADMIN_EMAIL` / `BANKING_ADMIN_PASSWORD`
 (docker compose dev: `admin@banking.local` / `admin12345`).
 
-**Định dạng lỗi:** RFC 7807 `ProblemDetail` với các trường `status`, `detail`, có thể có `errors[]`.
-Riêng gateway trả `{"error": "..."}` khi thiếu `Idempotency-Key`.
+**JWT:** access token có hiệu lực **15 phút** (`expiresAt` trong `LoginResponse`).
+
+**Định dạng lỗi:** RFC 7807 `ProblemDetail` với các trường `status`, `detail`, `code`; lỗi validation có thêm
+`errors: [{field, message}]`. Gateway khi thiếu `Idempotency-Key` cũng trả cùng dạng
+`{"status":400,"detail":"...","code":"IDEMPOTENCY_KEY_MISSING"}`. Client map `code` sang tiếng Việt.
+
+| `code` | HTTP | Ý nghĩa |
+|---|---:|---|
+| `VALIDATION_FAILED` | 400 | Body/tham số/header không hợp lệ |
+| `IDEMPOTENCY_KEY_MISSING` | 400 | Thiếu `Idempotency-Key` |
+| `IDEMPOTENCY_KEY_REUSED` | 422 / 409 | Transfer: cùng key nhưng body khác (422); nạp tiền: key trùng bút toán khác (409) |
+| `EMAIL_TAKEN` | 409 | Email đã đăng ký |
+| `BAD_CREDENTIALS` | 401 | Sai email hoặc mật khẩu |
+| `CUSTOMER_LOCKED` | 423 | Tài khoản khách hàng bị khoá |
+| `TOO_MANY_ATTEMPTS` | 429 | Đăng nhập sai quá nhiều lần |
+| `NOT_FOUND` | 404 | Không tồn tại hoặc không thuộc về người gọi |
+| `SELF_LOCK` | 409 | Admin tự khoá chính mình |
+| `SOURCE_ACCOUNT_INVALID` | 422 | Tài khoản nguồn không hợp lệ |
+| `ACCOUNT_NOT_FOUND` | 422 | Không tìm thấy tài khoản nhận |
+| `CURRENCY_MISMATCH` | 422 | Hai tài khoản khác loại tiền |
+| `SELF_TRANSFER_NOT_ALLOWED` | 422 | Chuyển cho chính tài khoản nguồn |
+| `ACCOUNT_LIMIT_REACHED` | 409 | Đã đủ 10 tài khoản |
+| `UPSTREAM_UNAVAILABLE` | 503 | auth/ledger không phản hồi (timeout kết nối 2s, đọc 5s) |
+
+**Phân trang:** các API danh sách nhận `?page` (bắt đầu từ 0) và `&size` (mặc định 50, tối đa 200);
+tham số `sort` bị bỏ qua. Kết quả vẫn là mảng JSON.
 
 **Tiền tệ:** `amount` / `balance` là `BIGINT` đơn vị nhỏ nhất (minor units), không dùng số thực.
 
@@ -50,7 +74,7 @@ Gateway không có API nghiệp vụ; nó định tuyến và áp chính sách c
 Quy tắc của gateway:
 
 - Thiếu hoặc để trống `Idempotency-Key` trên `POST /transfers` → **400**
-  `{"error":"Missing or empty Idempotency-Key header"}`.
+  `{"status":400,"detail":"Missing or empty Idempotency-Key header","code":"IDEMPOTENCY_KEY_MISSING"}`.
 - Không có JWT hợp lệ → **401**.
 - Gateway chuyển tiếp nguyên token của người dùng xuống service phía sau.
 
@@ -73,18 +97,7 @@ Quy tắc của gateway:
 
 Ràng buộc: `email` hợp lệ, `password` 8–100 ký tự, `fullName` tối đa 255 ký tự.
 
-- **Response `201 Created`:**
-
-```json
-{
-  "id": "3f1c...",
-  "email": "customer@example.com",
-  "fullName": "Nguyen Van A",
-  "status": "ACTIVE",
-  "createdAt": "2026-10-31T07:00:00Z"
-}
-```
-
+- **Response `201 Created`:** `LoginResponse` (như `POST /auth/login`, đăng ký xong đăng nhập luôn).
 - Header `Location: /auth/me`
 - **Lỗi:** `400` dữ liệu không hợp lệ, `409` email đã tồn tại.
 
@@ -114,7 +127,7 @@ Ràng buộc: `email` hợp lệ, `password` 8–100 ký tự, `fullName` tối 
 }
 ```
 
-- **Lỗi:** `401` sai thông tin đăng nhập, `423` tài khoản bị khóa.
+- **Lỗi:** `401` sai thông tin đăng nhập, `423` tài khoản bị khóa, `429` thử sai quá nhiều lần (`TOO_MANY_ATTEMPTS`).
 
 ### `GET /auth/me` — Hồ sơ hiện tại
 
@@ -125,7 +138,8 @@ Ràng buộc: `email` hợp lệ, `password` 8–100 ký tự, `fullName` tối 
 ### `GET /auth/admin/customers` — Danh sách khách hàng (ADMIN)
 
 - **Auth:** Bearer JWT có `ROLE_ADMIN`
-- **Response `200 OK`:** mảng `CustomerResponse` (có trường `role`), tối đa 200 bản ghi mới nhất.
+- **Query:** `?q` lọc theo email / họ tên; `?page`, `&size` (tối đa 200).
+- **Response `200 OK`:** mảng `CustomerResponse` (có trường `role`), mới nhất trước.
 - **Lỗi:** `403` không phải admin.
 
 ### `POST /auth/admin/customers/{id}/lock` · `POST /auth/admin/customers/{id}/unlock` — Khoá / mở khoá (ADMIN)
@@ -150,7 +164,7 @@ Ledger là nơi duy nhất giữ số dư tài khoản.
 { "currency": "VND" }
 ```
 
-`currency` phải là 3 chữ in hoa (regex `[A-Z]{3}`).
+`currency` là `VND`, `USD` hoặc `EUR`. Mỗi khách hàng tối đa **10** tài khoản.
 
 - **Response `201 Created`:**
 
@@ -166,11 +180,12 @@ Ledger là nơi duy nhất giữ số dư tài khoản.
 ```
 
 - Header `Location: /accounts/{id}`
-- **Lỗi:** `400` currency không hợp lệ, `401` thiếu token.
+- **Lỗi:** `400` currency không hợp lệ, `401` thiếu token, `409` đã đủ 10 tài khoản (`ACCOUNT_LIMIT_REACHED`).
 
 ### `GET /accounts` — Tài khoản của tôi
 
 - **Auth:** Bearer JWT
+- **Query:** `?page`, `&size`.
 - **Response `200 OK`:** mảng `AccountResponse` của đúng khách hàng đang đăng nhập.
 
 ### `GET /accounts/{id}` — Chi tiết tài khoản
@@ -197,21 +212,24 @@ Ledger là nơi duy nhất giữ số dư tài khoản.
 ]
 ```
 
-- Sắp xếp mới nhất trước; `direction` là `DEBIT` hoặc `CREDIT`.
+- Hỗ trợ `?page`, `&size`; sắp xếp mới nhất trước; `direction` là `DEBIT` hoặc `CREDIT`.
 - **Lỗi:** `403`, `404`.
 
 ### `GET /accounts/admin` — Tất cả tài khoản (ADMIN)
 
 - **Auth:** Bearer JWT có `ROLE_ADMIN`
-- **Response `200 OK`:** mảng `AccountResponse`, tối đa 200 tài khoản mới nhất.
+- **Query:** `?q` lọc theo số tài khoản; `?page`, `&size` (tối đa 200).
+- **Response `200 OK`:** mảng `AccountResponse`, mới nhất trước.
 - **Lỗi:** `403`.
 
 ### `POST /accounts/admin/{id}/deposit` — Nạp tiền (ADMIN)
 
 - **Auth:** Bearer JWT có `ROLE_ADMIN`
+- **Header bắt buộc:** `Idempotency-Key: <UUID>`
 - **Request:** `{"amount": 10000000}` (minor units, `1..1000000000000`)
-- **Response `200 OK`:** `AccountResponse` với số dư mới. Ghi một bút toán `CREDIT` có `transferId` là mã tham chiếu mới.
-- **Lỗi:** `400`, `403`, `404`.
+- **Response `200 OK`:** `AccountResponse` với số dư mới. Ghi một bút toán `CREDIT` có `transferId` là `Idempotency-Key`;
+  gửi lại cùng key cho cùng tài khoản trả về tài khoản, không nạp thêm.
+- **Lỗi:** `400` (thiếu/sai key, body), `403`, `404`, `409` key đã dùng cho bút toán khác (`IDEMPOTENCY_KEY_REUSED`).
 
 ### `GET /accounts/internal/{id}` — Tra cứu nội bộ
 
@@ -227,7 +245,7 @@ Ledger là nơi duy nhất giữ số dư tài khoản.
 ### `POST /transfers` — Tạo lệnh chuyển tiền
 
 - **Auth:** Bearer JWT
-- **Header bắt buộc:** `Idempotency-Key: <chuỗi duy nhất>` (gateway và service đều kiểm tra)
+- **Header bắt buộc:** `Idempotency-Key: <chuỗi duy nhất>` (gateway và service đều kiểm tra); key có phạm vi theo từng khách hàng.
 - **Request body:**
 
 ```json
@@ -239,6 +257,8 @@ Ledger là nơi duy nhất giữ số dư tài khoản.
 }
 ```
 
+Chỉ định đúng **một** trong `destAccountId` hoặc `destAccountNo` (dạng `^VN\d{10}$`).
+
 - **Response `202 Accepted`** khi saga mới được nhận:
 
 ```json
@@ -246,17 +266,24 @@ Ledger là nơi duy nhất giữ số dư tài khoản.
   "id": "7c9f...",
   "sourceAccountId": "0b7d...",
   "destAccountId": "9f3a...",
+  "sourceAccountNo": "VN0000000001",
+  "destAccountNo": "VN0000000002",
   "amount": 250000,
   "currency": "VND",
   "status": "PENDING",
   "failureReason": null,
   "createdAt": "2026-10-31T07:01:00Z",
-  "updatedAt": "2026-10-31T07:01:00Z"
+  "updatedAt": "2026-10-31T07:01:00Z",
+  "direction": "OUT"
 }
 ```
 
-- **Response `200 OK`** khi gửi lại cùng `Idempotency-Key`: trả về giao dịch cũ, không tạo saga mới.
-- **Lỗi:** `400` thiếu header/body không hợp lệ, `401`, `422` tài khoản nguồn/đích không hợp lệ.
+`direction`: `OUT` (người gửi / admin) hoặc `IN` (người nhận xem giao dịch đến).
+
+- **Response `200 OK`** khi gửi lại cùng `Idempotency-Key` và cùng body: trả về giao dịch cũ, không tạo saga mới.
+- **Lỗi:** `400` thiếu header/body không hợp lệ, `401`, `422` tài khoản không hợp lệ
+  (`SOURCE_ACCOUNT_INVALID`, `ACCOUNT_NOT_FOUND`, `CURRENCY_MISMATCH`, `SELF_TRANSFER_NOT_ALLOWED`) hoặc cùng key khác body
+  (`IDEMPOTENCY_KEY_REUSED`), `503` auth/ledger không phản hồi (`UPSTREAM_UNAVAILABLE`).
 
 Trạng thái cuối cùng: `COMPLETED` hoặc `FAILED` kèm `failureReason`
 (`FRAUD_REJECTED`, `INSUFFICIENT_FUNDS`, `PARTNER_TIMEOUT`, ...).
@@ -270,12 +297,14 @@ Trạng thái cuối cùng: `COMPLETED` hoặc `FAILED` kèm `failureReason`
 ### `GET /transfers` — Giao dịch của tôi
 
 - **Auth:** Bearer JWT
-- **Response `200 OK`:** mảng `TransferResponse`.
+- **Query:** `?page`, `&size`.
+- **Response `200 OK`:** mảng `TransferResponse`: giao dịch tôi gửi (`direction: OUT`) và giao dịch đến đã `COMPLETED` (`direction: IN`).
 
 ### `GET /transfers/admin` — Tất cả giao dịch (ADMIN)
 
 - **Auth:** Bearer JWT có `ROLE_ADMIN`
-- **Response `200 OK`:** mảng `TransferResponse`, tối đa 200 giao dịch mới nhất.
+- **Query:** `?page`, `&size` (tối đa 200).
+- **Response `200 OK`:** mảng `TransferResponse`, mới nhất trước.
 - **Lỗi:** `403`.
 
 ---

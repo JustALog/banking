@@ -1,6 +1,7 @@
 package vn.banking.auth.web;
 
 import java.net.URI;
+import java.util.Locale;
 import java.util.UUID;
 
 import org.springframework.http.ResponseEntity;
@@ -50,7 +51,7 @@ public class AuthController {
 
     @PostMapping("/login")
     public LoginResponse login(@Valid @RequestBody LoginRequest request) {
-        String key = request.email().trim().toLowerCase();
+        String key = request.email().trim().toLowerCase(Locale.ROOT);
         if (!throttle.tryAcquire(key)) {
             throw new TooManyAttemptsException();
         }
