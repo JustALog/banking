@@ -1,15 +1,34 @@
 #!/usr/bin/env bash
-# Brings up the whole platform on a local kind cluster:
-#   operators (ingress-nginx, metrics-server, cert-manager, CNPG + Barman plugin, Strimzi),
-#   observability (kube-prometheus-stack, ECK Elasticsearch/Kibana, Fluent Bit),
-#   service images, and the `banking` Helm chart.
-# Re-runnable. Usage (from server/):
 #   bash k8s/install.sh                 full profile (~10 GB RAM)
 #   PROFILE=demo bash k8s/install.sh    ~5 GB: 1 Kafka broker, 1 Postgres, no backups, no EFK logging
+
 set -euo pipefail
 PROFILE="${PROFILE:-full}"
 case "$PROFILE" in full|demo) ;; *) echo "PROFILE must be full or demo"; exit 1 ;; esac
 full() { [ "$PROFILE" = full ]; }
+
+step() { printf '\n=== %s ===\n' "$*"; }
+
+# Dependencies: install whatever is missing into ~/.local/bin (no sudo). Docker itself is not installed here.
+step "dependencies"
+KIND_VERSION=v0.27.0
+BIN="$HOME/.local/bin"; mkdir -p "$BIN"; export PATH="$BIN:$PATH"
+case "$(uname -s)" in Linux) OS=linux ;; Darwin) OS=darwin ;; *) echo "unsupported OS: $(uname -s)"; exit 1 ;; esac
+case "$(uname -m)" in x86_64|amd64) CPU=amd64 ;; aarch64|arm64) CPU=arm64 ;; *) echo "unsupported CPU: $(uname -m)"; exit 1 ;; esac
+command -v curl >/dev/null || { echo "curl is required"; exit 1; }
+command -v docker >/dev/null || { echo "docker is required: https://docs.docker.com/engine/install/"; exit 1; }
+docker info >/dev/null 2>&1 || { echo "docker daemon is not running (or this user cannot reach it)"; exit 1; }
+if ! command -v kind >/dev/null; then
+  curl -fsSLo "$BIN/kind" "https://kind.sigs.k8s.io/dl/$KIND_VERSION/kind-$OS-$CPU" && chmod +x "$BIN/kind"
+fi
+if ! command -v kubectl >/dev/null; then
+  KUBECTL_VERSION=$(curl -fsSL https://dl.k8s.io/release/stable.txt)
+  curl -fsSLo "$BIN/kubectl" "https://dl.k8s.io/release/$KUBECTL_VERSION/bin/$OS/$CPU/kubectl" && chmod +x "$BIN/kubectl"
+fi
+if ! command -v helm >/dev/null; then
+  curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | USE_SUDO=false HELM_INSTALL_DIR="$BIN" bash
+fi
+for t in kind kubectl helm; do echo "$t: $(command -v "$t")"; done
 
 cd "$(dirname "$0")/.."
 K8S=k8s
@@ -25,8 +44,6 @@ STRIMZI=1.3.0
 KPS=92.14.0
 ECK=3.5.0
 FLUENT_BIT=0.58.3
-
-step() { printf '\n=== %s ===\n' "$*"; }
 
 step "kind cluster"
 kind get clusters | grep -qx banking || kind create cluster --config $K8S/kind-cluster.yaml
