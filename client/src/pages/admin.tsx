@@ -90,7 +90,7 @@ export function AdminCustomers() {
           }}
         </Loaded>
       </section>
-      <p className="hint">Khoá chặn lần đăng nhập tiếp theo. Phiên đang mở của khách hàng vẫn dùng được tới khi hết hạn (tối đa 60 phút).</p>
+      <p className="hint">Khoá chặn lần đăng nhập tiếp theo. Phiên đang mở của khách hàng vẫn dùng được tới khi hết hạn (tối đa 15 phút).</p>
       {LIMIT_NOTE}
       <ConfirmDialog open={!!pending} title="Khoá khách hàng?" confirmLabel="Khoá" busy={busy}
         onConfirm={() => pending && toggle(pending)} onCancel={() => setPending(null)}>

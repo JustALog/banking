@@ -24,6 +24,7 @@ import vn.banking.events.TransferCompletedEvent;
 import vn.banking.events.TransferFailedEvent;
 import vn.banking.events.TransferRequestedEvent;
 import vn.banking.transfer.account.AccountValidationClient;
+import vn.banking.transfer.account.CustomerStatusClient;
 import vn.banking.transfer.domain.OutboxEvent;
 import vn.banking.transfer.domain.OutboxEventRepository;
 import vn.banking.transfer.domain.Transfer;
@@ -41,6 +42,8 @@ class SagaOrchestratorServiceTest {
     AccountValidationClient accountValidation;
     @Mock
     PartnerBankClient partnerBank;
+    @Mock
+    CustomerStatusClient customerStatus;
 
     SagaOrchestratorService service;
 
@@ -51,7 +54,7 @@ class SagaOrchestratorServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new SagaOrchestratorService(transfers, outbox, accountValidation, partnerBank);
+        service = new SagaOrchestratorService(transfers, outbox, accountValidation, partnerBank, customerStatus);
     }
 
     @Test
@@ -89,6 +92,7 @@ class SagaOrchestratorServiceTest {
 
     @Test
     void sameKeyFromOtherCustomerStartsNewSaga() {
+        when(customerStatus.isActive("Bearer t")).thenReturn(true);
         UUID customerB = UUID.randomUUID();
         var source = new AccountValidationClient.LedgerAccount(sourceId, "VN0001", customerB, "VND", 1_000_000);
         var dest = new AccountValidationClient.LedgerAccount(destId, "VN0002", UUID.randomUUID(), "VND", 0);
@@ -114,6 +118,7 @@ class SagaOrchestratorServiceTest {
 
     @Test
     void startRejectsWhenCallerDoesNotOwnSourceAccount() {
+        when(customerStatus.isActive("Bearer t")).thenReturn(true);
         var otherCustomer = new AccountValidationClient.LedgerAccount(sourceId, "VN0001", UUID.randomUUID(), "VND", 100);
         when(accountValidation.fetch(any(), anyString())).thenReturn(otherCustomer);
 
@@ -124,7 +129,27 @@ class SagaOrchestratorServiceTest {
     }
 
     @Test
+    void lockedCustomerCannotStartTransfer() {
+        when(customerStatus.isActive("Bearer t")).thenReturn(false);
+
+        assertThatThrownBy(() -> service.start(idemKey, customerId, sourceId, destId, 100, "VND", "Bearer t"))
+                .isInstanceOf(SagaOrchestratorService.AccountValidationException.class)
+                .extracting("code").isEqualTo("CUSTOMER_LOCKED");
+        verify(transfers, never()).save(any());
+    }
+
+    @Test
+    void authOutageFailsClosed() {
+        when(customerStatus.isActive("Bearer t")).thenThrow(new org.springframework.web.client.ResourceAccessException("down"));
+
+        assertThatThrownBy(() -> service.start(idemKey, customerId, sourceId, destId, 100, "VND", "Bearer t"))
+                .isInstanceOf(org.springframework.web.client.ResourceAccessException.class);
+        verify(transfers, never()).save(any());
+    }
+
+    @Test
     void destCurrencyMismatchHasCode() {
+        when(customerStatus.isActive("Bearer t")).thenReturn(true);
         var source = new AccountValidationClient.LedgerAccount(sourceId, "VN0001", customerId, "VND", 1_000_000);
         var dest = new AccountValidationClient.LedgerAccount(destId, "VN0002", UUID.randomUUID(), "USD", 50);
         when(accountValidation.fetch(sourceId, "Bearer t")).thenReturn(source);
@@ -137,6 +162,7 @@ class SagaOrchestratorServiceTest {
 
     @Test
     void selfTransferHasCode() {
+        when(customerStatus.isActive("Bearer t")).thenReturn(true);
         var source = new AccountValidationClient.LedgerAccount(sourceId, "VN0001", customerId, "VND", 1_000_000);
         when(accountValidation.fetch(sourceId, "Bearer t")).thenReturn(source);
 
@@ -221,6 +247,7 @@ class SagaOrchestratorServiceTest {
     }
 
     private void stubAccountsValid() {
+        when(customerStatus.isActive("Bearer t")).thenReturn(true);
         var source = new AccountValidationClient.LedgerAccount(sourceId, "VN0001", customerId, "VND", 1_000_000);
         var dest = new AccountValidationClient.LedgerAccount(destId, "VN0002", UUID.randomUUID(), "VND", 50);
         when(accountValidation.fetch(sourceId, "Bearer t")).thenReturn(source);

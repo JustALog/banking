@@ -26,7 +26,7 @@ banking:
     key-id: banking-auth-rs256
     private-key-path: ${BANKING_JWT_PRIVATE_KEY:file:../docker/keys/jwt-private.pem}
     public-key-path: ${BANKING_JWT_PUBLIC_KEY:file:../docker/keys/jwt-public.pem}
-    ttl: 60m
+    ttl: 15m
   admin:   # both empty = no admin account is created
     email: ${BANKING_ADMIN_EMAIL:}
     password: ${BANKING_ADMIN_PASSWORD:}

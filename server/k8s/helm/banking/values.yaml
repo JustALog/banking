@@ -24,7 +24,7 @@ apps:
     port: 8081
     db: customer
     jwtPrivateKey: true
-    allowFrom: [gateway-service]
+    allowFrom: [gateway-service, transfer-service]
   ledger-service:
     port: 8082
     db: ledger
@@ -37,6 +37,7 @@ apps:
     kafka: true
     allowFrom: [gateway-service, debezium-connector-init]
     env:
+      BANKING_AUTH_URL: http://auth-service:8081
       BANKING_LEDGER_URL: http://ledger-service:8082
       BANKING_PARTNER_URL: http://partner-mock:9090
   fraud-service:

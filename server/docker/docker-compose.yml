@@ -182,6 +182,7 @@ services:
       <<: *service-env
       SERVER_PORT: "8083"
       BANKING_DB_URL: jdbc:postgresql://postgres:5432/transfer_db
+      BANKING_AUTH_URL: http://auth-service:8081
       BANKING_LEDGER_URL: http://ledger-service:8082
       BANKING_PARTNER_URL: http://wiremock:9090
       # Partner-timeout demo: BANKING_PARTNER_EXECUTE_PATH=/partner-slow/v1/transfers docker compose up -d transfer-service
