@@ -218,7 +218,7 @@ public class SagaOrchestratorService {
 
     @Transactional(readOnly = true)
     public java.util.List<Transfer> listFor(UUID customerId) {
-        return transfers.findVisibleTo(customerId);
+        return transfers.findVisibleTo(customerId, Transfer.Status.COMPLETED);
     }
 
     @Transactional(readOnly = true)

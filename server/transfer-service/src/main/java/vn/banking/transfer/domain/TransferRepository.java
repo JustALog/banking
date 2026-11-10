@@ -14,9 +14,9 @@ public interface TransferRepository extends JpaRepository<Transfer, UUID> {
 
     /** Own transfers (any status) plus completed incoming ones. */
     @Query("select t from Transfer t where t.customerId = :me "
-            + "or (t.destCustomerId = :me and t.status = vn.banking.transfer.domain.Transfer.Status.COMPLETED) "
+            + "or (t.destCustomerId = :me and t.status = :done) "
             + "order by t.createdAt desc")
-    List<Transfer> findVisibleTo(@Param("me") UUID me);
+    List<Transfer> findVisibleTo(@Param("me") UUID me, @Param("done") Transfer.Status done);
 
     List<Transfer> findTop200ByOrderByCreatedAtDesc();
 }
