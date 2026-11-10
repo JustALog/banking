@@ -77,7 +77,7 @@ class SagaOrchestratorServiceTest {
     @Test
     void replayingSameIdempotencyKeyReturnsOriginalWithoutNewOutbox() {
         Transfer existing = new Transfer(idemKey, customerId, sourceId, destId, 250_000, "VND");
-        when(transfers.findByIdempotencyKey(idemKey)).thenReturn(Optional.of(existing));
+        when(transfers.findByCustomerIdAndIdempotencyKey(customerId, idemKey)).thenReturn(Optional.of(existing));
 
         var result = service.start(idemKey, customerId, sourceId, destId, 250_000, "VND", "Bearer t");
 
@@ -85,6 +85,31 @@ class SagaOrchestratorServiceTest {
         assertThat(result.transfer()).isSameAs(existing);
         verify(transfers, never()).save(any());
         verify(outbox, never()).save(any());
+    }
+
+    @Test
+    void sameKeyFromOtherCustomerStartsNewSaga() {
+        UUID customerB = UUID.randomUUID();
+        var source = new AccountValidationClient.LedgerAccount(sourceId, "VN0001", customerB, "VND", 1_000_000);
+        var dest = new AccountValidationClient.LedgerAccount(destId, "VN0002", UUID.randomUUID(), "VND", 0);
+        when(accountValidation.fetch(sourceId, "Bearer t")).thenReturn(source);
+        when(accountValidation.fetch(destId, "Bearer t")).thenReturn(dest);
+        when(transfers.findByCustomerIdAndIdempotencyKey(customerB, idemKey)).thenReturn(Optional.empty());
+        when(transfers.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        var result = service.start(idemKey, customerB, sourceId, destId, 250_000, "VND", "Bearer t");
+
+        assertThat(result.created()).isTrue();
+    }
+
+    @Test
+    void sameKeyDifferentBodyIsRejected() {
+        Transfer existing = new Transfer(idemKey, customerId, sourceId, destId, 250_000, "VND");
+        when(transfers.findByCustomerIdAndIdempotencyKey(customerId, idemKey)).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> service.start(idemKey, customerId, sourceId, destId, 300_000, "VND", "Bearer t"))
+                .isInstanceOf(SagaOrchestratorService.IdempotencyConflictException.class);
+        verify(transfers, never()).save(any());
     }
 
     @Test

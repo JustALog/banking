@@ -8,7 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface TransferRepository extends JpaRepository<Transfer, UUID> {
 
-    Optional<Transfer> findByIdempotencyKey(String idempotencyKey);
+    Optional<Transfer> findByCustomerIdAndIdempotencyKey(UUID customerId, String idempotencyKey);
 
     List<Transfer> findByCustomerIdOrderByCreatedAtDesc(UUID customerId);
 
