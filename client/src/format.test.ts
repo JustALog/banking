@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   formatAccountNo, groupByDay, parseAmount, reasonText, sagaSteps, validationText, statusCounts, totalsByCurrency, transferProblem, UUID_RE,
-} from './format.js';
+} from './format.ts';
 
 test('sagaSteps marks where a transfer is, or where it failed', () => {
-  const states = (t) => sagaSteps(t).map((s) => s.state);
+  const states = (t: Parameters<typeof sagaSteps>[0]) => sagaSteps(t).map((s) => s.state);
   assert.deepEqual(sagaSteps({ status: 'PENDING' }).map((s) => s.label), ['Đã gửi lệnh', 'Kiểm tra an toàn', 'Ghi sổ']);
   assert.deepEqual(states({ status: 'PENDING' }), ['done', 'active', 'todo']);
   assert.deepEqual(states({ status: 'COMPLETED' }), ['done', 'done', 'done']);

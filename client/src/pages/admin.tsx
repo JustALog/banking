@@ -1,21 +1,22 @@
 import { useCallback, useState } from 'react';
-import { api, get } from '../gateway.js';
-import { STATUS, date, formatAccountNo, groupByDay, money, parseAmount, reasonText, shortId, statusCounts, time, totalsByCurrency } from '../format.js';
-import { useLoad, useSession } from '../hooks.js';
-import { ConfirmDialog, EmptyState, Amount, Loaded, PageHead, StatBlock, StatusBadge, Toast } from '../ui.jsx';
-import { StatusFilter } from './user.jsx';
+import type { Account, Customer, Message, Transfer, TransferStatus } from '../types.ts';
+import { api, get } from '../gateway.ts';
+import { STATUS, date, formatAccountNo, groupByDay, money, parseAmount, reasonText, shortId, statusCounts, time, totalsByCurrency } from '../format.ts';
+import { useLoad, useSession } from '../hooks.ts';
+import { ConfirmDialog, EmptyState, Amount, Loaded, PageHead, StatBlock, StatusBadge, Toast } from '../ui.tsx';
+import { StatusFilter } from './user.tsx';
 
 // Every /admin API is ROLE_ADMIN-only on the server; these pages are hidden from users, not trusted to protect.
 
 const LIMIT_NOTE = <p className="hint">Hiển thị tối đa 200 bản ghi mới nhất.</p>;
 
 function useToast() {
-  const [message, setMessage] = useState(null);
+  const [message, setMessage] = useState<Message | null>(null);
   const close = useCallback(() => setMessage(null), []);
-  return [<Toast message={message} onClose={close} />, setMessage];
+  return [<Toast message={message} onClose={close} />, setMessage] as const;
 }
 
-function Search({ value, onChange, label }) {
+function Search({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
   return (
     <span className="field" style={{ width: 'min(100%, 300px)' }}>
       <input type="search" placeholder={label} aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} />
@@ -24,14 +25,14 @@ function Search({ value, onChange, label }) {
 }
 
 export function AdminCustomers() {
-  const { customer: me } = useSession();
-  const customers = useLoad(get('/auth/admin/customers'));
+  const { customer: me } = useSession()!;
+  const customers = useLoad(get<Customer[]>('/auth/admin/customers'));
   const [q, setQ] = useState('');
   const [toast, notify] = useToast();
-  const [pending, setPending] = useState(null);
+  const [pending, setPending] = useState<Customer | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const toggle = async (c) => {
+  const toggle = async (c: Customer) => {
     const locking = c.status === 'ACTIVE';
     setBusy(true);
     try {
@@ -39,14 +40,14 @@ export function AdminCustomers() {
       notify({ tone: 'ok', text: `${locking ? 'Đã khoá' : 'Đã mở khoá'} ${c.email}.` });
       customers.reload();
     } catch (err) {
-      notify({ tone: 'bad', text: err.message });
+      notify({ tone: 'bad', text: (err as Error).message });
     } finally {
       setBusy(false);
       setPending(null);
     }
   };
   // Unlocking is harmless and reversible, so only locking asks first.
-  const ask = (c) => (c.status === 'ACTIVE' ? setPending(c) : toggle(c));
+  const ask = (c: Customer) => (c.status === 'ACTIVE' ? setPending(c) : toggle(c));
 
   const list = customers.data ?? [];
   return (
@@ -92,7 +93,7 @@ export function AdminCustomers() {
       <p className="hint">Khoá chặn lần đăng nhập tiếp theo. Phiên đang mở của khách hàng vẫn dùng được tới khi hết hạn (tối đa 60 phút).</p>
       {LIMIT_NOTE}
       <ConfirmDialog open={!!pending} title="Khoá khách hàng?" confirmLabel="Khoá" busy={busy}
-        onConfirm={() => toggle(pending)} onCancel={() => setPending(null)}>
+        onConfirm={() => pending && toggle(pending)} onCancel={() => setPending(null)}>
         {pending && <>Khoá {pending.email}? Khách hàng sẽ không đăng nhập được nữa.</>}
       </ConfirmDialog>
       {toast}
@@ -100,10 +101,10 @@ export function AdminCustomers() {
   );
 }
 
-function DepositForm({ account, onAsk }) {
+function DepositForm({ account, onAsk }: { account: Account; onAsk: (account: Account, value: number, clear: () => void) => void }) {
   const [text, setText] = useState('');
   const value = parseAmount(text);
-  const valid = value > 0 && value <= 1e12;
+  const valid = value != null && value > 0 && value <= 1e12;
   return (
     <form className="row" style={{ flexWrap: 'nowrap' }} onSubmit={(e) => { e.preventDefault(); if (valid) onAsk(account, value, () => setText('')); }}>
       <span className={`field ${text && !valid ? 'invalid' : ''}`} style={{ width: 160, minHeight: 40 }}>
@@ -116,24 +117,25 @@ function DepositForm({ account, onAsk }) {
 }
 
 export function AdminAccounts() {
-  const accounts = useLoad(get('/accounts/admin'));
-  const customers = useLoad(get('/auth/admin/customers'));
+  const accounts = useLoad(get<Account[]>('/accounts/admin'));
+  const customers = useLoad(get<Customer[]>('/auth/admin/customers'));
   const [q, setQ] = useState('');
   const [toast, notify] = useToast();
-  const [pending, setPending] = useState(null);
+  const [pending, setPending] = useState<{ account: Account; value: number; clear: () => void } | null>(null);
   const [busy, setBusy] = useState(false);
   const owner = new Map((customers.data ?? []).map((c) => [c.id, c]));
 
   const deposit = async () => {
+    if (!pending) return;
     const { account, value, clear } = pending;
     setBusy(true);
     try {
-      const { data } = await api('POST', `/accounts/admin/${account.id}/deposit`, { body: { amount: value } });
+      const { data } = await api<Account>('POST', `/accounts/admin/${account.id}/deposit`, { body: { amount: value } });
       clear();
       notify({ tone: 'ok', text: `Đã nạp ${money(value, account.currency)} vào ${formatAccountNo(account.accountNo)}. Số dư mới ${money(data.balance, account.currency)}.` });
       accounts.reload();
     } catch (err) {
-      notify({ tone: 'bad', text: err.message });
+      notify({ tone: 'bad', text: (err as Error).message });
     } finally {
       setBusy(false);
       setPending(null);
@@ -184,11 +186,11 @@ export function AdminAccounts() {
 }
 
 export function AdminTransfers() {
-  const transfers = useLoad(get('/transfers/admin'));
-  const accounts = useLoad(get('/accounts/admin'));
+  const transfers = useLoad(get<Transfer[]>('/transfers/admin'));
+  const accounts = useLoad(get<Account[]>('/accounts/admin'));
   const [filter, setFilter] = useState('');
   const accountNo = new Map((accounts.data ?? []).map((a) => [a.id, formatAccountNo(a.accountNo)]));
-  const label = (id) => accountNo.get(id) ?? shortId(id);
+  const label = (id: string) => accountNo.get(id) ?? shortId(id);
   const counts = statusCounts(transfers.data ?? []);
 
   return (
@@ -197,7 +199,7 @@ export function AdminTransfers() {
         <button type="button" className="btn btn-frost" onClick={transfers.reload}>Làm mới</button>
       </PageHead>
       <section className="stats">
-        {Object.entries(STATUS).map(([k, v]) => <StatBlock key={k} label={v.label} value={counts[k]} />)}
+        {(Object.keys(STATUS) as TransferStatus[]).map((k) => <StatBlock key={k} label={STATUS[k].label} value={counts[k]} />)}
       </section>
       <div><StatusFilter value={filter} onChange={setFilter} /></div>
       <section className="block">

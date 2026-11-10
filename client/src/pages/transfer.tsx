@@ -1,14 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
-import { api, get } from '../gateway.js';
-import { formatAccountNo, money, parseAmount, transferProblem } from '../format.js';
-import { useAccounts, useLoad } from '../hooks.js';
-import { Amount, CopyButton, EmptyState, Loaded, PageHead, Receipt } from '../ui.jsx';
-import { accountLabel } from './user.jsx';
+import { api, get } from '../gateway.ts';
+import { formatAccountNo, money, parseAmount, transferProblem } from '../format.ts';
+import { useAccounts, useLoad } from '../hooks.ts';
+import { Amount, CopyButton, EmptyState, Loaded, PageHead, Receipt } from '../ui.tsx';
+import type { Account, Transfer as TransferRecord } from '../types.ts';
+import { ApiError } from '../gateway.ts';
+import { accountLabel } from './user.tsx';
 
 const STEPS = ['Thông tin', 'Xác nhận', 'Kết quả'];
 
-function Steps({ current }) {
+function Steps({ current }: { current: number }) {
   return (
     <ol className="steps" aria-label="Các bước chuyển tiền">
       {STEPS.map((s, i) => (
@@ -32,11 +34,11 @@ export function Transfer() {
   );
 }
 
-function TransferForm({ accounts }) {
+function TransferForm({ accounts }: { accounts: Account[] }) {
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const [source, setSource] = useState(accounts.some((a) => a.id === params.get('from')) ? params.get('from') : accounts[0].id);
-  const [mode, setMode] = useState(accounts.length > 1 ? 'own' : 'other');
+  const [source, setSource] = useState(accounts.find((a) => a.id === params.get('from'))?.id ?? accounts[0].id);
+  const [mode, setMode] = useState<'own' | 'other'>(accounts.length > 1 ? 'own' : 'other');
   const [own, setOwn] = useState('');
   const [other, setOther] = useState('');
   const [amountText, setAmountText] = useState('');
@@ -46,15 +48,16 @@ function TransferForm({ accounts }) {
   // One key per intended transfer: a retry after a network error reuses it, so money moves at most once.
   const key = useRef(crypto.randomUUID());
 
-  const from = accounts.find((a) => a.id === source);
+  const from = accounts.find((a) => a.id === source)!;
   const targets = accounts.filter((a) => a.id !== source && a.currency === from.currency);
   const ownTarget = targets.find((a) => a.id === own) ?? targets[0];
   const dest = mode === 'own' ? (ownTarget?.id ?? '') : other.trim();
   const amount = parseAmount(amountText);
   const problem = transferProblem({ mode, from, dest, amount });
 
-  const change = (setter) => (value) => { setter(value); setReview(false); setError(''); key.current = crypto.randomUUID(); };
-  const onInput = (setter) => (e) => change(setter)(e.target.value);
+  const change = <T,>(setter: (v: T) => void) => (value: T) => { setter(value); setReview(false); setError(''); key.current = crypto.randomUUID(); };
+  // The setter's own state type (string or a literal union) is what the DOM value is cast to.
+  const onInput = (setter: (v: any) => void) => (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => change(setter)(e.target.value);
   const canPaste = typeof navigator !== 'undefined' && !!navigator.clipboard?.readText;
   const paste = async () => {
     try { change(setOther)((await navigator.clipboard.readText()).trim()); } catch { /* permission denied: type it instead */ }
@@ -68,12 +71,13 @@ function TransferForm({ accounts }) {
     setBusy(true);
     setError('');
     try {
-      const { data } = await api('POST', '/transfers', {
+      const { data } = await api<TransferRecord>('POST', '/transfers', {
         body: { sourceAccountId: source, destAccountId: dest, amount, currency: from.currency },
         headers: { 'Idempotency-Key': key.current },
       });
       navigate(`/app/transactions/${data.id}`, { state: { fromTransfer: true } });
-    } catch (err) {
+    } catch (e) {
+      const err = e as ApiError;
       setError(err.status === 422 ? 'Không tìm thấy tài khoản nhận, hoặc tài khoản không hợp lệ.' : err.message);
       sending.current = false;
       setBusy(false);
@@ -86,12 +90,12 @@ function TransferForm({ accounts }) {
         <Steps current={1} />
         <div className="stack" style={{ gap: 8 }}>
           <h2>Bạn sắp chuyển</h2>
-          <Amount value={amount} currency={from.currency} size="lg" />
+          <Amount value={amount!} currency={from.currency} size="lg" />
         </div>
         <dl className="summary">
           <div><dt>Từ tài khoản</dt><dd className="acct">{formatAccountNo(from.accountNo)}</dd></div>
           <div><dt>Đến</dt><dd className="acct break">{accountLabel(accounts, dest) ?? dest}</dd></div>
-          <div><dt>Số dư sau giao dịch</dt><dd><Amount value={from.balance - amount} currency={from.currency} /></dd></div>
+          <div><dt>Số dư sau giao dịch</dt><dd><Amount value={from.balance - amount!} currency={from.currency} /></dd></div>
         </dl>
         {error && <p className="alert bad" role="alert">{error}</p>}
         <div className="row">
@@ -148,7 +152,7 @@ function TransferForm({ accounts }) {
           <input inputMode="numeric" autoComplete="off" placeholder="0" value={amountText} onChange={onInput(setAmountText)} />
           <span className="unit">{from.currency}</span>
         </span>
-        <span className="hint">{amount > 0 ? money(amount, from.currency) : 'Số nguyên, có thể nhập 2.500.000'}</span>
+        <span className="hint">{amount != null && amount > 0 ? money(amount, from.currency) : 'Số nguyên, có thể nhập 2.500.000'}</span>
       </label>
 
       {amountText && problem && <p className="alert bad" role="alert">{problem}</p>}
@@ -163,7 +167,7 @@ const POLL_LIMIT_MS = 60000;
 export function TransactionDetail() {
   const { id } = useParams();
   const fromTransfer = useLocation().state?.fromTransfer;
-  const transfer = useLoad(get(`/transfers/${id}`), [id]);
+  const transfer = useLoad(get<TransferRecord>(`/transfers/${id}`), [id]);
   const accounts = useAccounts();
   const [stalled, setStalled] = useState(false);
   const pending = transfer.data?.status === 'PENDING';

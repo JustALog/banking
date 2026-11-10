@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router';
-import { api, get } from '../gateway.js';
-import { STATUS, date, formatAccountNo, shortId, time, totalsByCurrency } from '../format.js';
-import { useAccounts, useLoad, useSession } from '../hooks.js';
-import { Amount, CopyButton, DayGroups, EmptyState, Loaded, PageHead, StatusBadge } from '../ui.jsx';
+import { api, get } from '../gateway.ts';
+import { STATUS, date, formatAccountNo, shortId, time, totalsByCurrency } from '../format.ts';
+import { useAccounts, useLoad, useSession } from '../hooks.ts';
+import type { Account, Customer, Entry, Message, Notification, Transfer } from '../types.ts';
+import { Amount, CopyButton, DayGroups, EmptyState, Loaded, PageHead, StatusBadge } from '../ui.tsx';
 
-export const accountLabel = (accounts, id) => {
+export const accountLabel = (accounts: Account[] | null | undefined, id: string) => {
   const no = accounts?.find((a) => a.id === id)?.accountNo;
   return no ? formatAccountNo(no) : undefined;
 };
@@ -13,10 +14,10 @@ export const accountLabel = (accounts, id) => {
 /* ---------- Dashboard ---------- */
 
 export function Dashboard() {
-  const { customer } = useSession();
+  const { customer } = useSession()!;
   const accounts = useAccounts();
-  const transfers = useLoad(get('/transfers'));
-  const notes = useLoad(get('/notifications'));
+  const transfers = useLoad(get<Transfer[]>('/transfers'));
+  const notes = useLoad(get<Notification[]>('/notifications'));
   const list = accounts.data ?? [];
 
   return (
@@ -74,7 +75,7 @@ export function Dashboard() {
   );
 }
 
-function NoAccount({ reload }) {
+function NoAccount({ reload }: { reload: () => void }) {
   return (
     <EmptyState title="Bạn chưa có tài khoản thanh toán" action={<OpenAccount onOpened={reload} />}>
       Mở một tài khoản để nhận và chuyển tiền.
@@ -82,7 +83,7 @@ function NoAccount({ reload }) {
   );
 }
 
-function AccountCard({ account }) {
+function AccountCard({ account }: { account: Account }) {
   return (
     <Link to={`/app/accounts/${account.id}`} className="object account-card">
       <span className="spread">
@@ -94,7 +95,7 @@ function AccountCard({ account }) {
   );
 }
 
-export function TransferList({ transfers, accounts }) {
+export function TransferList({ transfers, accounts }: { transfers: Transfer[]; accounts: Account[] | null }) {
   return (
     <DayGroups items={transfers}>
       {(t) => (
@@ -118,19 +119,19 @@ export function TransferList({ transfers, accounts }) {
 
 /* ---------- Accounts ---------- */
 
-function OpenAccount({ onOpened }) {
+function OpenAccount({ onOpened }: { onOpened?: () => void }) {
   const [currency, setCurrency] = useState('VND');
-  const [msg, setMsg] = useState(null);
+  const [msg, setMsg] = useState<Message | null>(null);
   const [busy, setBusy] = useState(false);
-  const submit = async (e) => {
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
     try {
-      const { data } = await api('POST', '/accounts', { body: { currency } });
+      const { data } = await api<Account>('POST', '/accounts', { body: { currency } });
       setMsg({ tone: 'ok', text: `Đã mở tài khoản ${formatAccountNo(data.accountNo)}.` });
       onOpened?.();
     } catch (err) {
-      setMsg({ tone: 'bad', text: err.message });
+      setMsg({ tone: 'bad', text: (err as Error).message });
     } finally {
       setBusy(false);
     }
@@ -172,8 +173,8 @@ export function Accounts() {
 
 export function AccountDetail() {
   const { id } = useParams();
-  const account = useLoad(get(`/accounts/${id}`), [id]);
-  const entries = useLoad(get(`/accounts/${id}/entries`), [id]);
+  const account = useLoad(get<Account>(`/accounts/${id}`), [id]);
+  const entries = useLoad(get<Entry[]>(`/accounts/${id}/entries`), [id]);
   return (
     <Loaded state={account}>
       {(a) => (
@@ -225,9 +226,9 @@ export function AccountDetail() {
 
 /* ---------- History, notifications, profile ---------- */
 
-const FILTERS = [['', 'Tất cả'], ...Object.entries(STATUS).map(([k, v]) => [k, v.label])];
+const FILTERS: [string, string][] = [['', 'Tất cả'], ...Object.entries(STATUS).map(([k, v]): [string, string] => [k, v.label])];
 
-export function StatusFilter({ value, onChange }) {
+export function StatusFilter({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
     <div className="segmented" role="group" aria-label="Lọc theo trạng thái">
       {FILTERS.map(([k, label]) => (
@@ -238,7 +239,7 @@ export function StatusFilter({ value, onChange }) {
 }
 
 export function Transactions() {
-  const transfers = useLoad(get('/transfers'));
+  const transfers = useLoad(get<Transfer[]>('/transfers'));
   const accounts = useAccounts();
   const [filter, setFilter] = useState('');
   return (
@@ -262,7 +263,7 @@ export function Transactions() {
 }
 
 export function Notifications() {
-  const notes = useLoad(get('/notifications'));
+  const notes = useLoad(get<Notification[]>('/notifications'));
   return (
     <>
       <PageHead title="Thông báo">
@@ -295,7 +296,7 @@ export function Notifications() {
 }
 
 export function Profile() {
-  const me = useLoad(get('/auth/me'));
+  const me = useLoad(get<Customer>('/auth/me'));
   return (
     <>
       <PageHead title="Hồ sơ" />
