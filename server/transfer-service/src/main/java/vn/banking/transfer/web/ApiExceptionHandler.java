@@ -20,6 +20,13 @@ public class ApiExceptionHandler {
         return d;
     }
 
+    @ExceptionHandler(SagaOrchestratorService.IdempotencyConflictException.class)
+    ProblemDetail idempotencyConflict(SagaOrchestratorService.IdempotencyConflictException e) {
+        ProblemDetail d = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage());
+        d.setProperty("code", "IDEMPOTENCY_KEY_REUSED");
+        return d;
+    }
+
     @ExceptionHandler(SagaOrchestratorService.TransferNotFoundException.class)
     ProblemDetail notFound(SagaOrchestratorService.TransferNotFoundException e) {
         ProblemDetail d = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.getMessage());

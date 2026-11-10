@@ -3,6 +3,7 @@ package vn.banking.transfer.web;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
@@ -48,8 +49,15 @@ public class TransferController {
         UUID customerId = UUID.fromString(jwtAuth.getToken().getSubject());
         String bearerToken = "Bearer " + jwtAuth.getToken().getTokenValue();
 
-        var result = saga.start(idempotencyKey, customerId, request.sourceAccountId(),
-                request.destAccountId(), request.amount(), request.currency(), bearerToken);
+        SagaOrchestratorService.StartResult result;
+        try {
+            result = saga.start(idempotencyKey, customerId, request.sourceAccountId(),
+                    request.destAccountId(), request.amount(), request.currency(), bearerToken);
+        } catch (DataIntegrityViolationException e) {
+            // Concurrent request with the same key won the insert; retry once in a new transaction to read it.
+            result = saga.start(idempotencyKey, customerId, request.sourceAccountId(),
+                    request.destAccountId(), request.amount(), request.currency(), bearerToken);
+        }
 
         // 202 for a newly accepted saga; 200 when an idempotent replay returns the original
         return ResponseEntity

@@ -21,7 +21,7 @@ public class Transfer {
     @Id
     private UUID id;
 
-    @Column(name = "idempotency_key", nullable = false, unique = true)
+    @Column(name = "idempotency_key", nullable = false)
     private String idempotencyKey;
 
     @Column(name = "customer_id", nullable = false)

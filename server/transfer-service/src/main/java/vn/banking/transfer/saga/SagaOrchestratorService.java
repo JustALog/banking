@@ -58,9 +58,14 @@ public class SagaOrchestratorService {
     @Transactional
     public StartResult start(String idempotencyKey, UUID customerId, UUID sourceAccountId,
             UUID destAccountId, long amount, String currency, String bearerToken) {
-        var existing = transfers.findByIdempotencyKey(idempotencyKey);
+        var existing = transfers.findByCustomerIdAndIdempotencyKey(customerId, idempotencyKey);
         if (existing.isPresent()) {
-            return new StartResult(existing.get(), false);
+            Transfer t = existing.get();
+            if (!t.getSourceAccountId().equals(sourceAccountId) || !t.getDestAccountId().equals(destAccountId)
+                    || t.getAmount() != amount || !t.getCurrency().equals(currency)) {
+                throw new IdempotencyConflictException("Idempotency-Key was already used with a different request");
+            }
+            return new StartResult(t, false);
         }
 
         validateAccounts(customerId, sourceAccountId, destAccountId, currency, bearerToken);
@@ -194,6 +199,12 @@ public class SagaOrchestratorService {
     public static class TransferNotFoundException extends RuntimeException {
         public TransferNotFoundException(UUID id) {
             super("Transfer not found: " + id);
+        }
+    }
+
+    public static class IdempotencyConflictException extends RuntimeException {
+        public IdempotencyConflictException(String message) {
+            super(message);
         }
     }
 
