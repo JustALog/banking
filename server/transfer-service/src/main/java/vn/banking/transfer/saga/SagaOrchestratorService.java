@@ -217,13 +217,13 @@ public class SagaOrchestratorService {
     }
 
     @Transactional(readOnly = true)
-    public java.util.List<Transfer> listFor(UUID customerId) {
-        return transfers.findVisibleTo(customerId, Transfer.Status.COMPLETED);
+    public java.util.List<Transfer> listFor(UUID customerId, org.springframework.data.domain.Pageable pageable) {
+        return transfers.findVisibleTo(customerId, Transfer.Status.COMPLETED, pageable);
     }
 
     @Transactional(readOnly = true)
-    public java.util.List<Transfer> listAll() {
-        return transfers.findTop200ByOrderByCreatedAtDesc();
+    public java.util.List<Transfer> listAll(org.springframework.data.domain.Pageable pageable) {
+        return transfers.findAllByOrderByCreatedAtDesc(pageable);
     }
 
     public static class TransferNotFoundException extends RuntimeException {

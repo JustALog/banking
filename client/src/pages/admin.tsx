@@ -2,13 +2,11 @@ import { useCallback, useRef, useState } from 'react';
 import type { Account, Customer, Message, Transfer, TransferStatus } from '../types.ts';
 import { api, get } from '../gateway.ts';
 import { STATUS, date, formatAccountNo, groupByDay, money, parseAmount, reasonText, shortId, statusCounts, time, totalsByCurrency } from '../format.ts';
-import { useLoad, useSession } from '../hooks.ts';
-import { ConfirmDialog, EmptyState, Amount, Loaded, PageHead, StatBlock, StatusBadge, Toast } from '../ui.tsx';
+import { useDebounced, useLoad, usePaged, useSession } from '../hooks.ts';
+import { ConfirmDialog, EmptyState, Amount, Loaded, MoreButton, PageHead, StatBlock, StatusBadge, Toast } from '../ui.tsx';
 import { StatusFilter } from './user.tsx';
 
 // Every /admin API is ROLE_ADMIN-only on the server; these pages are hidden from users, not trusted to protect.
-
-const LIMIT_NOTE = <p className="hint">Hiển thị tối đa 200 bản ghi mới nhất.</p>;
 
 function useToast() {
   const [message, setMessage] = useState<Message | null>(null);
@@ -26,8 +24,9 @@ function Search({ value, onChange, label }: { value: string; onChange: (v: strin
 
 export function AdminCustomers() {
   const { customer: me } = useSession()!;
-  const customers = useLoad(get<Customer[]>('/auth/admin/customers'));
   const [q, setQ] = useState('');
+  const term = useDebounced(q.trim());
+  const customers = usePaged<Customer>(`/auth/admin/customers${term ? `?${new URLSearchParams({ q: term })}` : ''}`);
   const [toast, notify] = useToast();
   const [pending, setPending] = useState<Customer | null>(null);
   const [busy, setBusy] = useState(false);
@@ -58,10 +57,8 @@ export function AdminCustomers() {
         <StatBlock label="Đã khoá" value={list.filter((c) => c.status !== 'ACTIVE').length} />
       </section>
       <section className="block">
-        <Loaded state={customers} empty={<EmptyState title="Chưa có khách hàng" />}>
-          {(data) => {
-            const needle = q.trim().toLowerCase();
-            const shown = data.filter((c) => !needle || c.email.toLowerCase().includes(needle) || c.fullName.toLowerCase().includes(needle));
+        <Loaded state={customers} empty={term ? <p className="muted">Không có khách hàng khớp “{term}”.</p> : <EmptyState title="Chưa có khách hàng" />}>
+          {(shown) => {
             return (
               <div className="table-wrap">
                 <table>
@@ -84,14 +81,13 @@ export function AdminCustomers() {
                     ))}
                   </tbody>
                 </table>
-                {!shown.length && <p className="muted" style={{ padding: 12 }}>Không có khách hàng khớp “{q}”.</p>}
               </div>
             );
           }}
         </Loaded>
+        <MoreButton list={customers} />
       </section>
       <p className="hint">Khoá chặn lần đăng nhập tiếp theo. Phiên đang mở của khách hàng vẫn dùng được tới khi hết hạn (tối đa 15 phút).</p>
-      {LIMIT_NOTE}
       <ConfirmDialog open={!!pending} title="Khoá khách hàng?" confirmLabel="Khoá" busy={busy}
         onConfirm={() => pending && toggle(pending)} onCancel={() => setPending(null)}>
         {pending && <>Khoá {pending.email}? Khách hàng sẽ không đăng nhập được nữa.</>}
@@ -119,9 +115,10 @@ function DepositForm({ account, onAsk }: { account: Account; onAsk: (account: Ac
 }
 
 export function AdminAccounts() {
-  const accounts = useLoad(get<Account[]>('/accounts/admin'));
-  const customers = useLoad(get<Customer[]>('/auth/admin/customers'));
   const [q, setQ] = useState('');
+  const term = useDebounced(q.trim());
+  const accounts = usePaged<Account>(`/accounts/admin${term ? `?${new URLSearchParams({ q: term })}` : ''}`);
+  const customers = useLoad(get<Customer[]>('/auth/admin/customers'));
   const [toast, notify] = useToast();
   const [pending, setPending] = useState<{ account: Account; value: number; clear: () => void; key: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -147,16 +144,14 @@ export function AdminAccounts() {
   const list = accounts.data ?? [];
   return (
     <>
-      <PageHead title="Tài khoản hệ thống"><Search value={q} onChange={setQ} label="Tìm tài khoản, email" /></PageHead>
+      <PageHead title="Tài khoản hệ thống"><Search value={q} onChange={setQ} label="Tìm số tài khoản" /></PageHead>
       <section className="stats">
         <StatBlock label="Tài khoản" value={list.length} />
         {totalsByCurrency(list).map(([cur, sum]) => <StatBlock key={cur} label={`Tổng ${cur}`} value={<Amount value={sum} currency={cur} size="md" />} />)}
       </section>
       <section className="block">
-        <Loaded state={accounts} empty={<EmptyState title="Chưa có tài khoản nào" />}>
-          {(data) => {
-            const needle = q.trim().toLowerCase();
-            const shown = data.filter((a) => !needle || a.accountNo.toLowerCase().includes(needle) || owner.get(a.customerId)?.email.toLowerCase().includes(needle));
+        <Loaded state={accounts} empty={term ? <p className="muted">Không có tài khoản khớp “{term}”.</p> : <EmptyState title="Chưa có tài khoản nào" />}>
+          {(shown) => {
             return (
               <div className="table-wrap">
                 <table>
@@ -176,9 +171,9 @@ export function AdminAccounts() {
             );
           }}
         </Loaded>
+        <MoreButton list={accounts} />
       </section>
       <p className="hint">Nạp tiền ghi một khoản tiền vào trên sao kê của khách hàng với mã tham chiếu mới.</p>
-      {LIMIT_NOTE}
       <ConfirmDialog open={!!pending} title="Nạp tiền?" confirmLabel="Nạp tiền" busy={busy} onConfirm={deposit} onCancel={() => setPending(null)}>
         {pending && <>Nạp {money(pending.value, pending.account.currency)} vào {formatAccountNo(pending.account.accountNo)}?</>}
       </ConfirmDialog>
@@ -188,7 +183,7 @@ export function AdminAccounts() {
 }
 
 export function AdminTransfers() {
-  const transfers = useLoad(get<Transfer[]>('/transfers/admin'));
+  const transfers = usePaged<Transfer>('/transfers/admin');
   const accounts = useLoad(get<Account[]>('/accounts/admin'));
   const [filter, setFilter] = useState('');
   const accountNo = new Map((accounts.data ?? []).map((a) => [a.id, formatAccountNo(a.accountNo)]));
@@ -232,8 +227,8 @@ export function AdminTransfers() {
             );
           }}
         </Loaded>
+        <MoreButton list={transfers} />
       </section>
-      {LIMIT_NOTE}
     </>
   );
 }

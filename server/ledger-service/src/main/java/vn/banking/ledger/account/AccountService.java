@@ -4,6 +4,7 @@ import java.security.SecureRandom;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -59,8 +60,11 @@ public class AccountService {
     }
 
     @Transactional(readOnly = true)
-    public List<Account> listAll() {
-        return repository.findTop200ByOrderByCreatedAtDesc();
+    public List<Account> listAll(String q, Pageable pageable) {
+        if (q == null || q.isBlank()) {
+            return repository.findAllByOrderByCreatedAtDesc(pageable);
+        }
+        return repository.findByAccountNoContainingIgnoreCaseOrderByCreatedAtDesc(q.trim(), pageable);
     }
 
     /**

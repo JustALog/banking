@@ -2,6 +2,7 @@ package vn.banking.notification.web;
 
 import java.util.List;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
 
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
@@ -23,9 +24,9 @@ public class NotificationController {
     }
 
     @GetMapping
-    public List<NotificationResponse> myNotifications(Authentication authentication) {
+    public List<NotificationResponse> myNotifications(Authentication authentication, Pageable pageable) {
         UUID customerId = currentCustomer(authentication);
-        return notificationService.listFor(customerId).stream()
+        return notificationService.listFor(customerId, org.springframework.data.domain.PageRequest.of(pageable.getPageNumber(), pageable.getPageSize())).stream()
                 .map(NotificationResponse::from)
                 .toList();
     }

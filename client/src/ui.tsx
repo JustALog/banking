@@ -15,6 +15,14 @@ export function Loaded<T>({ state, children, empty, isEmpty = (d) => Array.isArr
   return children(state.data as T);
 }
 
+// Loaded only shows errors when there is no data, so a failed page 2+ / reload is surfaced here.
+export const MoreButton = ({ list }: { list: { items: unknown[]; error: Error | null; more: boolean; loading: boolean; loadMore: () => Promise<void> } }) => (
+  <>
+    {list.error && list.items.length > 0 && <p className="alert bad" role="alert">{list.error.message}</p>}
+    {list.more && <div><button type="button" className="btn btn-frost" onClick={list.loadMore} disabled={list.loading}>Tải thêm</button></div>}
+  </>
+);
+
 export const EmptyState = ({ title, children, action }: { title: string; children?: ReactNode; action?: ReactNode }) => (
   <div className="empty">
     <h3>{title}</h3>

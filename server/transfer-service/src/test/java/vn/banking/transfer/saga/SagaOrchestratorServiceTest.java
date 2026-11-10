@@ -378,4 +378,15 @@ class SagaOrchestratorServiceTest {
             assertThat(payload.toString()).contains(expectedField);
         }
     }
+
+    @Test
+    void listsPassPageableToRepository() {
+        var page = org.springframework.data.domain.PageRequest.of(0, 50);
+
+        service.listFor(customerId, page);
+        service.listAll(page);
+
+        verify(transfers).findVisibleTo(customerId, Transfer.Status.COMPLETED, page);
+        verify(transfers).findAllByOrderByCreatedAtDesc(page);
+    }
 }

@@ -4,6 +4,7 @@ import java.net.URI;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
@@ -59,9 +60,9 @@ public class AccountController {
     }
 
     @GetMapping("/{id}/entries")
-    public List<EntryResponse> entries(@PathVariable UUID id, Authentication authentication) {
+    public List<EntryResponse> entries(@PathVariable UUID id, Authentication authentication, Pageable pageable) {
         accountService.getOwnedAccount(id, currentCustomer(authentication));
-        return entryRepository.findByAccountIdOrderByCreatedAtDesc(id).stream()
+        return entryRepository.findByAccountIdOrderByCreatedAtDesc(id, Paging.unsorted(pageable)).stream()
                 .map(EntryResponse::from)
                 .toList();
     }

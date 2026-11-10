@@ -3,6 +3,7 @@ package vn.banking.auth.customer;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,8 +51,13 @@ public class CustomerService {
     }
 
     @Transactional(readOnly = true)
-    public List<Customer> listAll() {
-        return repository.findTop200ByOrderByCreatedAtDesc();
+    public List<Customer> listAll(String q, Pageable pageable) {
+        if (q == null || q.isBlank()) {
+            return repository.findAllByOrderByCreatedAtDesc(pageable);
+        }
+        String term = q.trim();
+        return repository.findByEmailContainingIgnoreCaseOrFullNameContainingIgnoreCaseOrderByCreatedAtDesc(
+                term, term, pageable);
     }
 
     @Transactional

@@ -84,4 +84,14 @@ class NotificationServiceTest {
         assertThat(result).isSameAs(existing);
         verify(repository, never()).save(any());
     }
+
+    @Test
+    void listForPassesPageable() {
+        UUID customerId = UUID.randomUUID();
+        var page = org.springframework.data.domain.PageRequest.of(0, 50);
+
+        service.listFor(customerId, page);
+
+        verify(repository).findByCustomerIdOrderByCreatedAtDesc(customerId, page);
+    }
 }

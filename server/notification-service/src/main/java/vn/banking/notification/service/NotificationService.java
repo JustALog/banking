@@ -2,6 +2,7 @@ package vn.banking.notification.service;
 
 import java.util.List;
 import java.util.UUID;
+import org.springframework.data.domain.Pageable;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -78,7 +79,7 @@ public class NotificationService {
     }
 
     @Transactional(readOnly = true)
-    public List<Notification> listFor(UUID customerId) {
-        return repository.findByCustomerIdOrderByCreatedAtDesc(customerId);
+    public List<Notification> listFor(UUID customerId, Pageable pageable) {
+        return repository.findByCustomerIdOrderByCreatedAtDesc(customerId, pageable);
     }
 }

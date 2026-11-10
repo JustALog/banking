@@ -91,4 +91,15 @@ class AccountServiceTest {
         assertThat(result.getBalance()).isZero();
         verify(entries, never()).save(any());
     }
+
+    @Test
+    void listAllPassesPageableAndFiltersByAccountNo() {
+        var page = org.springframework.data.domain.PageRequest.of(0, 50);
+
+        new AccountService(accounts, entries).listAll(null, page);
+        new AccountService(accounts, entries).listAll(" 123 ", page);
+
+        verify(accounts).findAllByOrderByCreatedAtDesc(page);
+        verify(accounts).findByAccountNoContainingIgnoreCaseOrderByCreatedAtDesc("123", page);
+    }
 }
