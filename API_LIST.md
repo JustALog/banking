@@ -8,9 +8,9 @@ Nguồn: các `*Controller.java`, `SecurityConfig.java`, `gateway-service/applic
 | Vendor / Service | Cổng | Vai trò | Gọi qua gateway | Số API nghiệp vụ |
 |---|---:|---|---|---:|
 | `gateway-service` | 8080 | Cổng vào duy nhất, xác thực JWT, ép `Idempotency-Key` | — | 0 (chỉ định tuyến) |
-| `auth-service` | 8081 | Đăng ký, đăng nhập, hồ sơ khách hàng | `/auth/**` | 3 |
-| `ledger-service` | 8082 | Tài khoản, bút toán, chủ sở hữu số dư | `/accounts/**` | 5 |
-| `transfer-service` | 8083 | Saga chuyển tiền, trạng thái giao dịch | `/transfers/**` | 3 |
+| `auth-service` | 8081 | Đăng ký, đăng nhập, hồ sơ khách hàng, quản trị khách hàng | `/auth/**` | 6 |
+| `ledger-service` | 8082 | Tài khoản, bút toán, chủ sở hữu số dư | `/accounts/**` | 7 |
+| `transfer-service` | 8083 | Saga chuyển tiền, trạng thái giao dịch | `/transfers/**` | 4 |
 | `fraud-service` | 8084 | Kiểm tra gian lận (hướng sự kiện) | Không có route | 0 |
 | `notification-service` | 8085 | Thông báo đã lưu | `/notifications/**` | 1 |
 | `wiremock` (đối tác) | 9090 | Mock partner bank, gọi nội bộ từ transfer-service | Không | 2 |
@@ -19,6 +19,11 @@ Nguồn: các `*Controller.java`, `SecurityConfig.java`, `gateway-service/applic
 
 **Xác thực:** mọi API (trừ `POST /auth/register`, `POST /auth/login` và actuator/swagger) đều cần
 header `Authorization: Bearer <accessToken>`. Token lấy từ `POST /auth/login`.
+
+**Vai trò:** claim `roles` trong JWT là `ROLE_USER` hoặc `ROLE_ADMIN` (cột `customer.role`).
+Mọi API `/…/admin/**` cần `ROLE_ADMIN`, người dùng thường nhận `403`. Đăng ký luôn tạo `USER`;
+tài khoản admin được auth-service tạo lúc khởi động từ `BANKING_ADMIN_EMAIL` / `BANKING_ADMIN_PASSWORD`
+(docker compose dev: `admin@banking.local` / `admin12345`).
 
 **Định dạng lỗi:** RFC 7807 `ProblemDetail` với các trường `status`, `detail`, có thể có `errors[]`.
 Riêng gateway trả `{"error": "..."}` khi thiếu `Idempotency-Key`.
@@ -117,6 +122,19 @@ Ràng buộc: `email` hợp lệ, `password` 8–100 ký tự, `fullName` tối 
 - **Response `200 OK`:** cùng cấu trúc `CustomerResponse` như trên.
 - **Lỗi:** `401` thiếu/sai token, `404` không tìm thấy khách hàng.
 
+### `GET /auth/admin/customers` — Danh sách khách hàng (ADMIN)
+
+- **Auth:** Bearer JWT có `ROLE_ADMIN`
+- **Response `200 OK`:** mảng `CustomerResponse` (có trường `role`), tối đa 200 bản ghi mới nhất.
+- **Lỗi:** `403` không phải admin.
+
+### `POST /auth/admin/customers/{id}/lock` · `POST /auth/admin/customers/{id}/unlock` — Khoá / mở khoá (ADMIN)
+
+- **Auth:** Bearer JWT có `ROLE_ADMIN`
+- **Response `200 OK`:** `CustomerResponse` với `status` mới (`LOCKED` / `ACTIVE`).
+- **Lỗi:** `403`, `404`, `409` khi admin tự khoá chính mình.
+- Khoá chỉ chặn đăng nhập mới; JWT đã cấp còn hiệu lực tới khi hết hạn.
+
 ---
 
 ## 3. Ledger Service — `ledger-service` (:8082)
@@ -182,6 +200,19 @@ Ledger là nơi duy nhất giữ số dư tài khoản.
 - Sắp xếp mới nhất trước; `direction` là `DEBIT` hoặc `CREDIT`.
 - **Lỗi:** `403`, `404`.
 
+### `GET /accounts/admin` — Tất cả tài khoản (ADMIN)
+
+- **Auth:** Bearer JWT có `ROLE_ADMIN`
+- **Response `200 OK`:** mảng `AccountResponse`, tối đa 200 tài khoản mới nhất.
+- **Lỗi:** `403`.
+
+### `POST /accounts/admin/{id}/deposit` — Nạp tiền (ADMIN)
+
+- **Auth:** Bearer JWT có `ROLE_ADMIN`
+- **Request:** `{"amount": 10000000}` (minor units, `1..1000000000000`)
+- **Response `200 OK`:** `AccountResponse` với số dư mới. Ghi một bút toán `CREDIT` có `transferId` là mã tham chiếu mới.
+- **Lỗi:** `400`, `403`, `404`.
+
 ### `GET /accounts/internal/{id}` — Tra cứu nội bộ
 
 - **Auth:** Bearer JWT (service-to-service, transfer-service chuyển tiếp token người dùng)
@@ -240,6 +271,12 @@ Trạng thái cuối cùng: `COMPLETED` hoặc `FAILED` kèm `failureReason`
 
 - **Auth:** Bearer JWT
 - **Response `200 OK`:** mảng `TransferResponse`.
+
+### `GET /transfers/admin` — Tất cả giao dịch (ADMIN)
+
+- **Auth:** Bearer JWT có `ROLE_ADMIN`
+- **Response `200 OK`:** mảng `TransferResponse`, tối đa 200 giao dịch mới nhất.
+- **Lỗi:** `403`.
 
 ---
 

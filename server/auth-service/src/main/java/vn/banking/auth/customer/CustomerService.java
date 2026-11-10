@@ -1,5 +1,6 @@
 package vn.banking.auth.customer;
 
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -19,11 +20,6 @@ public class CustomerService {
 
     @Transactional
     public Customer register(String email, String password, String fullName) {
-        return register(email, password, fullName, Customer.Role.USER);
-    }
-
-    @Transactional
-    public Customer register(String email, String password, String fullName, Customer.Role role) {
         String normalizedEmail = email.trim().toLowerCase();
         if (repository.existsByEmailIgnoreCase(normalizedEmail)) {
             throw new DuplicateEmailException(normalizedEmail);
@@ -32,7 +28,6 @@ public class CustomerService {
         customer.setEmail(normalizedEmail);
         customer.setPasswordHash(passwordEncoder.encode(password));
         customer.setFullName(fullName.trim());
-        customer.setRole(role);
         return repository.save(customer);
     }
 
@@ -52,6 +47,27 @@ public class CustomerService {
     @Transactional(readOnly = true)
     public Customer getById(UUID id) {
         return repository.findById(id).orElseThrow(() -> new CustomerNotFoundException(id));
+    }
+
+    @Transactional(readOnly = true)
+    public List<Customer> listAll() {
+        return repository.findTop200ByOrderByCreatedAtDesc();
+    }
+
+    @Transactional
+    public Customer setStatus(UUID id, Customer.Status status, UUID actingAdminId) {
+        if (id.equals(actingAdminId)) {
+            throw new SelfLockException();
+        }
+        Customer customer = getById(id);
+        customer.setStatus(status);
+        return customer;
+    }
+
+    public static class SelfLockException extends RuntimeException {
+        public SelfLockException() {
+            super("Admins cannot change their own status");
+        }
     }
 
     public static class DuplicateEmailException extends RuntimeException {

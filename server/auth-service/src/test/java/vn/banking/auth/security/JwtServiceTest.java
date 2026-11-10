@@ -79,6 +79,19 @@ class JwtServiceTest {
         assertThat(JWTParser.parse(token).getHeader().getAlgorithm()).isEqualTo(JWSAlgorithm.RS256);
     }
 
+    @Test
+    void adminCustomerGetsAdminRole() throws Exception {
+        Customer admin = new Customer();
+        var idField = Customer.class.getDeclaredField("id");
+        idField.setAccessible(true);
+        idField.set(admin, UUID.randomUUID());
+        admin.setRole(Customer.Role.ADMIN);
+
+        JWTClaimsSet claims = JWTParser.parse(jwtService.issueToken(admin)).getJWTClaimsSet();
+
+        assertThat(claims.getStringListClaim("roles")).containsExactly("ROLE_ADMIN");
+    }
+
     private static String pem(String type, byte[] der) {
         var encoded = Base64.getMimeEncoder(64, "\n".getBytes()).encodeToString(der);
         return "-----BEGIN " + type + "-----\n" + encoded + "\n-----END " + type + "-----\n";

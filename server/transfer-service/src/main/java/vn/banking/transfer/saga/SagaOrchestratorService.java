@@ -186,6 +186,11 @@ public class SagaOrchestratorService {
         return transfers.findByCustomerIdOrderByCreatedAtDesc(customerId);
     }
 
+    @Transactional(readOnly = true)
+    public java.util.List<Transfer> listAll() {
+        return transfers.findTop200ByOrderByCreatedAtDesc();
+    }
+
     public static class TransferNotFoundException extends RuntimeException {
         public TransferNotFoundException(UUID id) {
             super("Transfer not found: " + id);

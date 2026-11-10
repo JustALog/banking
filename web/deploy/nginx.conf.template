@@ -1,0 +1,24 @@
+# Same contract as vite.config.js: the browser only talks to this origin, API prefixes go to the gateway
+# (the gateway has no CORS config), everything else is the SPA.
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+
+    location = /healthz { access_log off; return 200 "ok\n"; }
+
+    location ~ ^/(auth|accounts|transfers|notifications)(/|$) {
+        proxy_pass ${GATEWAY_URL};
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Hashed bundles never change; index.html must always be revalidated to pick up a new deploy.
+    location /assets/ { expires 1y; add_header Cache-Control "public, immutable"; }
+
+    location / {
+        add_header Cache-Control "no-cache";
+        try_files $uri /index.html;
+    }
+}

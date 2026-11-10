@@ -158,7 +158,8 @@ services:
       SERVER_PORT: "8081"
       BANKING_DB_URL: jdbc:postgresql://postgres:5432/customer_db
       BANKING_JWT_PRIVATE_KEY: file:/keys/jwt-private.pem
-      BANKING_SEED_DEMO_ACCOUNTS: ${BANKING_SEED_DEMO_ACCOUNTS:-false}   # demo.sh sets true
+      BANKING_ADMIN_EMAIL: admin@banking.local   # dev only
+      BANKING_ADMIN_PASSWORD: admin12345
 
   ledger-service:
     <<: *service
@@ -226,6 +227,23 @@ services:
       BANKING_LEDGER_URL: http://ledger-service:8082
       BANKING_TRANSFER_URL: http://transfer-service:8083
       BANKING_NOTIFY_URL: http://notification-service:8085
+
+  # Customer/admin website (React build served by nginx, API paths proxied to the gateway).
+  # Opt-in:  docker compose --profile web up -d --build web   → http://localhost:5174
+  web:
+    build: {context: ../../web}
+    image: banking/web:dev
+    container_name: banking-web
+    profiles: ["web"]
+    restart: unless-stopped
+    depends_on:
+      gateway-service: {condition: service_healthy}
+    ports: ["5174:80"]
+    environment:
+      GATEWAY_URL: http://gateway-service:8080
+    deploy:
+      resources:
+        limits: {memory: 64m, cpus: "0.5"}
 
   kafka-ui:
     image: provectuslabs/kafka-ui:v0.7.2

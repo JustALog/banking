@@ -33,6 +33,7 @@ public class SecurityConfig {
                         // Internal endpoints are called service-to-service with a forwarded user JWT:
                         // authentication only, ownership rules live in the calling service.
                         .requestMatchers("/internal/**").authenticated()
+                        .requestMatchers("/accounts/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(rs -> rs.jwt(jwt -> jwt.jwtAuthenticationConverter(authoritiesConverter())))
                 .build();

@@ -18,7 +18,7 @@ public class Customer {
 
     public enum Status { ACTIVE, LOCKED }
 
-    public enum Role { USER, STAFF, ADMIN }
+    public enum Role { USER, ADMIN }
 
     @Id
     private UUID id;
@@ -86,6 +86,10 @@ public class Customer {
 
     public Status getStatus() {
         return status;
+    }
+
+    public void setStatus(Status status) {
+        this.status = status;
     }
 
     public Role getRole() {

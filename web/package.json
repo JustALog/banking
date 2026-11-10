@@ -1,0 +1,29 @@
+{
+  "name": "banking-web",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=14.18.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "react-router-dom": "6.30.3"
+  },
+  "devDependencies": {
+    "@types/node": "14.18.63",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "@vitejs/plugin-react": "4.7.0",
+    "typescript": "5.9.3",
+    "vite": "4.5.14",
+    "vitest": "0.34.6"
+  }
+}

@@ -1,173 +1,265 @@
-# Banking Platform
+# Banking Platform — Core Platform, Services & Kubernetes (Round 3)
 
 **English** · [Tiếng Việt](README.vi.md)
 
-A distributed banking and payment platform: six Spring Boot services behind an API gateway, an event-driven money-transfer saga on Kafka, and a React website. It runs locally with Docker Compose or on Kubernetes (kind).
+Distributed banking & payment platform per `Architect_diagram.drawio`.
+- **Round 1**: Core money-movement path: Auth/Customer → Transfer (saga + outbox + Debezium CDC) → Fraud (stub) → Ledger (sole balance owner) → Partner Bank call (Resilience4j).
+- **Round 2**: **API Gateway** (Spring Cloud Gateway, JWT verification, Idempotency-Key enforcement), **Notification Service** (`notify_db`, consumes completed/failed events, mocks Email/SMS), **Fraud Service with persistence & real velocity rules** (`fraud_db`), and **Ledger Reversal Compensation** for partner bank failures after posting.
+- **Round 3**: **Kubernetes** (kind, Helm, Strimzi 3-broker KRaft Kafka, CloudNativePG primary+standby, NGINX Ingress, HPA/PDB/NetworkPolicy), **Backup** (Barman Cloud plugin → S3, daily + continuous WAL, PITR), **Observability** (kube-prometheus-stack + Grafana dashboard, Fluent Bit → ECK Elasticsearch/Kibana).
+- **Test console**: Vite + vanilla TypeScript UI in `client/` for auth, accounts, transfers, notifications, scripted failure scenarios and a live API log.
 
-The design is in [Architect_diagram.drawio](Architect_diagram.drawio). The HTTP API is in [API_LIST.md](API_LIST.md) (Vietnamese).
+The React SPA lives in `web/`; `client/` stays a framework-free TypeScript test console.
 
-## Highlights
-
-- **Transfer saga with a transactional outbox.** Transfer state and the `transfer.requested` event are committed in one DB transaction. Debezium CDC publishes the event to Kafka, so there is no dual write.
-- **Ledger is the only owner of balances.** It does double-entry posting with row locks taken in a fixed order, and it reverses automatically if the partner bank fails after posting.
-- **Fraud rules** are an amount threshold plus sliding-window count and volume velocity. Every evaluation is stored.
-- **Gateway** verifies the JWT and requires an `Idempotency-Key` on transfers.
-- **Resilience:** the partner call has a 3 s timeout and a circuit breaker. Failing Kafka records are retried 3 times, then sent to `transfer.dlq`.
-- **Operations:** the Kubernetes deployment has HA Kafka and Postgres, PITR backups, Prometheus/Grafana metrics and EFK logs with one trace id per transfer.
-
-## Repository layout
+## Layout
 
 ```
-client/                  React 19 + React Router 7 + Vite website (talks to the gateway only)
+client/                 browser test console (React 19 + Vite, plain JS, :5173)
+  DESIGN.md             visual tokens and component notes
+  src/main.jsx          entry point, routes
+  src/shell.jsx, ui.jsx, hooks.js   layout, shared components, hooks
+  src/pages/            public, user, transfer, admin pages
+  src/gateway.js        gateway fetch wrapper and JWT handling
+  src/format.js         money/date formatting (unit-tested)
+  vite.config.js        dev server on :5173, proxies API paths to the gateway
+
+web/                    customer + admin banking website (React + TypeScript, :5174)
+  src/types.ts          API response types (mirror the services' *Response records)
+  src/gateway.ts        calls the gateway: JWT header, session storage, error messages
+  src/format.ts         money/date formatting, transfer status and failure-reason text
+  src/components.tsx    shell, receipt, shared hooks (useLoad, useSession)
+  src/pages/            public.tsx, user.tsx, admin.tsx
+  Dockerfile            Node 14 build stage → nginx (SPA fallback + API proxy)
+
 server/
-  common-events/         Kafka topic names and event records (shared contract)
-  gateway-service/ :8080 Spring Cloud Gateway: JWT resource server, Idempotency-Key filter
-  auth-service/    :8081 register/login, RS256 JWT issuance        (customer_db)
-  ledger-service/  :8082 accounts, double-entry posting, reversal  (ledger_db)
-  transfer-service/:8083 saga orchestrator + outbox                (transfer_db)
-  fraud-service/   :8084 threshold + velocity rules, audit log     (fraud_db)
-  notification-service/ :8085 consumes outcomes, mock email/SMS    (notify_db)
-  docker/                Compose stack: Postgres, Kafka (KRaft), Debezium Connect, WireMock partner, Kafka UI
-  k8s/                   kind cluster, install.sh, Helm chart, third-party chart values, logging, backup
-  scripts/               demo.sh (bring up + smoke test), smoke.sh (end-to-end checks)
+  common-events/        Kafka topic names + event records (shared contract)
+  gateway-service/      :8080  Spring Cloud Gateway, JWT resource server, route filter
+  auth-service/         :8081  register/login, RS256 JWT issuance (customer_db)
+  ledger-service/       :8082  accounts REST, double-entry posting, balance owner, reversal compensation (ledger_db)
+  transfer-service/     :8083  saga orchestrator + transactional outbox (transfer_db)
+  fraud-service/        :8084  threshold & sliding-window velocity rules, audit log (fraud_db)
+  notification-service/ :8085  event consumer, notification persistence, mock email/SMS (notify_db)
+  docker/               docker-compose infra: postgres (5 databases), kafka (KRaft), debezium connect,
+                        wiremock partner mock, kafka-ui (http://localhost:8090)
+  scripts/smoke.sh      end-to-end happy path, idempotency, notification, and gateway routing check
+  Dockerfile            one image recipe for all services (--build-arg MODULE=<service>)
+  k8s/
+    install.sh          kind cluster + operators + observability + images + `banking` chart (re-runnable)
+    helm/banking/       one chart: all 6 services (looped from values.yaml), Kafka, Postgres, Debezium,
+                        partner mock, backups, ServiceMonitors, Grafana dashboard
+    values/             values for third-party charts (kube-prometheus-stack, fluent-bit)
+    logging/            ECK Elasticsearch + Kibana
+    backup/             PITR restore example
 ```
 
-## Quickstart (Docker Compose)
+Full API list grouped by service (vendor), with request/response examples: [API_LIST.md](API_LIST.md).
 
-Requires JDK 21+, Docker with Compose v2, bash, curl, and python3 or node (used by the smoke script).
+## Prerequisites
+
+- JDK 21+, Docker Desktop (or any docker compose v2)
+- Node.js `>=14.18.0` (CI tests 14.18 → 22), plus npm, for `web/` and `client/`
+- bash + curl (the smoke script uses python3 or node for JSON parsing; either works)
+
+## Quickstart
+
+Everything (infra + 6 services) runs in docker compose, memory-capped (hard cap ~4 GB):
 
 ```bash
 cd server
-bash scripts/demo.sh   # generate keys → compose up --build --wait → Debezium connector → smoke test
+bash scripts/demo.sh        # keys → docker compose up --build --wait → Debezium connector → smoke test
 ```
 
-The first run builds six images and takes several minutes. The stack is memory-capped at about 4 GB.
-Later runs: `bash scripts/demo.sh --fast` reuses images and skips the smoke test.
+First run builds 6 images (several minutes); later runs reuse them. `bash scripts/demo.sh --fast` skips the build and the smoke test, and is the quickest way to bring the stack back up.
 
-### Test accounts by role
+### Test accounts
 
-`bash scripts/demo.sh` creates these accounts: it starts auth-service with `BANKING_SEED_DEMO_ACCOUNTS=true` (off by default in compose), which seeds one account per role (password `Test@1234`). `demo.sh` logs in to each and prints its `roles` claim.
+`demo.sh` prints the result of logging in as each account below.
 
-| Email | Role (JWT claim) |
-|---|---|
-| `user@test.local` | `ROLE_USER` |
-| `staff@test.local` | `ROLE_STAFF` |
-| `admin@test.local` | `ROLE_ADMIN` |
+| Account | Role | How it is created |
+|---|---|---|
+| `admin@banking.local` / `admin12345` | `ROLE_ADMIN` | `AdminBootstrap` in auth-service, from `BANKING_ADMIN_EMAIL` / `BANKING_ADMIN_PASSWORD` in docker compose. Unset means no admin is created. |
+| `customer@banking.local` / `Customer12345` | `ROLE_USER` | `demo.sh` registers it through `POST /auth/register` (skipped if it already exists). |
 
-Log in via `POST /auth/login`. `/auth/register` always creates `USER`. No endpoint checks `STAFF`/`ADMIN` yet; add `hasRole(...)` in a service's `SecurityConfig` to use them. Demo only: never enable the flag in production.
+`/auth/register` always creates a `USER`; only `AdminBootstrap` can create an admin. These credentials are for local demos only, so do not reuse them anywhere real.
 
-| What | Where |
-|---|---|
-| API (via gateway) | http://localhost:8080 |
-| Swagger UI per service | http://localhost:808{1..5}/swagger-ui.html |
-| Kafka UI (`--profile tools`) | http://localhost:8090 |
-| Postgres (host port) | localhost:5433 |
-| Kafka Connect REST | http://localhost:8086 |
+Useful extras:
 
 ```bash
-docker compose -f docker/docker-compose.yml --profile tools up -d    # start Kafka UI
-docker compose -f docker/docker-compose.yml down                     # stop (add -v to wipe data)
-docker stats --no-stream                                             # per-container memory
+docker stats --no-stream                                            # per-container memory
+docker compose -f docker/docker-compose.yml --profile tools up -d   # Kafka UI on http://localhost:8090
+BANKING_PARTNER_EXECUTE_PATH=/partner-slow/v1/transfers \
+  docker compose -f docker/docker-compose.yml up -d transfer-service  # partner-timeout + reversal demo
+docker compose -f docker/docker-compose.yml down                    # stop (add -v to wipe data)
 ```
 
-To work on one service from your IDE, run `docker compose stop <service>`, then `mvn -pl <service> spring-boot:run`. Defaults in `application.yml` point at localhost. Point the DB at the published port, for example `BANKING_DB_URL=jdbc:postgresql://localhost:5433/ledger_db`.
+To hack on one service from the IDE instead, `docker compose stop <service>` and run
+`mvn -pl <service> spring-boot:run` — defaults in `application.yml` point at localhost; Postgres is published on host port **5433**, so also set e.g. `BANKING_DB_URL=jdbc:postgresql://localhost:5433/ledger_db`.
+Kafka Connect REST is on host port **8086**.
 
-Backend tests: `cd server && bash docker/keys/generate-keys.sh && mvn verify`. This is what CI runs ([backend-ci.yml](.github/workflows/backend-ci.yml)).
+Swagger UI per service: `http://localhost:808{1..5}/swagger-ui.html`.
 
-## Website
+For the browser test console, see [Test console (client/)](#test-console-client).
+
+## How the money moves & recovers
+
+1. `POST /transfers` with `Idempotency-Key` → API Gateway validates JWT and ensures `Idempotency-Key` header exists.
+2. Transfer-service validates both accounts with ledger-service, then commits **one atomic transaction**:
+   `transfer` row (PENDING) + `outbox_event` row (`transfer.requested`). Returns 202.
+3. **Debezium Outbox Event Router** tails `transfer_db` WAL → publishes `transfer.requested` (key = source accountId).
+4. **Fraud-service** evaluates the request:
+   - Single transfer amount threshold check
+   - Frequency velocity check (max transfers in sliding time window)
+   - Volume velocity check (aggregate amount in sliding time window)
+   - Records full evaluation in `fraud_db` and publishes `fraud.decided` (`APPROVED` or `REJECTED`).
+5. **Ledger-service** consumes `fraud.decided`:
+   - Locks both accounts (`SELECT … FOR UPDATE`, sorted UUID order to prevent deadlocks).
+   - Posts debit/credit with `UNIQUE(transfer_id, account_id, direction)` guard.
+   - Publishes `ledger.posted`. (If it cannot post — insufficient funds, unknown account — publishes `ledger.rejected`; transfer-service fails the saga and writes `transfer.failed` to its outbox.)
+6. **Transfer-service** consumes `ledger.posted` → calls the partner mock under **a 3s HTTP read timeout + Resilience4j CircuitBreaker**:
+   - **Success**: Transfer marked COMPLETED → writes `transfer.completed` to outbox.
+   - **Timeout / Failure**: Transfer marked FAILED → writes `transfer.failed` to outbox.
+7. **Compensation (Ledger Reversal)**:
+   - When `transfer.failed` is published after posting, **ledger-service consumes it**.
+   - Identifies original debit and credit entries, locks accounts, and executes **compensating reversal entries**:
+     refunds the source account (`CREDIT`) and debits the destination account (`DEBIT`).
+8. **Notification-service** consumes `transfer.completed` and `transfer.failed`:
+   - Persists notification records in `notify_db`.
+   - Simulates email/SMS delivery to the customer.
+
+## Verifying the failure paths
+
+| Scenario | How | Expected |
+|---|---|---|
+| Gateway missing Idempotency-Key | omit `Idempotency-Key` header on `POST /transfers` | HTTP 400 Bad Request directly from Gateway |
+| Idempotency replay | re-send same `Idempotency-Key` | same transfer id, HTTP 200, no duplicate saga |
+| Fraud threshold reject | transfer amount > threshold | FAILED / FRAUD_REJECTED, balances unchanged |
+| Fraud velocity reject | submit > 5 transfers within 60s | FAILED / FRAUD_REJECTED from the 6th on; the rule detail (`VELOCITY_COUNT`, `TOO_MANY_TRANSFERS_IN_WINDOW: 6`) is only in `fraud_db.fraud_evaluation`, not exposed to the customer |
+| Insufficient funds | transfer more than balance | FAILED / INSUFFICIENT_FUNDS, balances unchanged |
+| Partner timeout + Reversal | set `banking.partner.execute-path=/partner-slow/v1/transfers` (5s delay vs 3s read timeout) | FAILED / PARTNER_TIMEOUT; ledger-service consumes failure and **automatically reverses posted balances** |
+| Poison message | malformed event on a consumed topic | 3 retries → `transfer.dlq` |
+
+## Design notes
+
+- **Money is `BIGINT` minor units** everywhere; no floats.
+- Producers: `acks=all`, `enable.idempotence=true`; consumers read `read_committed`.
+- Every service is an OAuth2 Resource Server validating the RS256 public key.
+- Ledger is the sole owner of account balances; `@Version` optimistic locking plus pessimistic row locks during posting.
+- Transactional outbox pattern prevents dual-write issues.
+- Gateway acts as the central ingress point: JWT verification and the mandatory `Idempotency-Key` header. No rate limiting yet (Spring Cloud Gateway's limiter needs Redis).
+- Every Kafka consumer retries a failing record 3 times (1s apart), then dead-letters it to `transfer.dlq`.
+- One traceId follows a transfer through every service: W3C `traceparent` over HTTP and Kafka headers
+  (Spring Kafka observation), and across the outbox hop via the `outbox_event.traceparent` column, which
+  Debezium copies into the Kafka header. Kibana: filter `app.traceId : "<id>"`. Rows in different DBs are
+  correlated by `transfer_id` (present in transfer, ledger_entry, fraud_evaluation, notification).
+
+## Kubernetes (kind)
+
+Needs docker, kind, kubectl, helm. RAM budget for the whole kind node: **~9 GB steady, ≤10 GB** with gateway/fraud fully scaled (3 Kafka brokers, Postgres primary+standby, Elasticsearch/Kibana, Prometheus), or ~5 GB with `PROFILE=demo`. Every pod has a memory limit and the Spring services run with a fixed 192 MB heap.
+
+```bash
+cd server
+bash k8s/install.sh                  # full profile: ~15 min on first run; prints URLs and the k8s smoke-test command
+PROFILE=demo bash k8s/install.sh     # low-memory profile, ~5 GB (see below)
+```
+
+**`PROFILE=demo`** keeps the same architecture (Strimzi, CNPG, Debezium, Ingress, HPA/PDB/NetworkPolicy,
+Prometheus + Grafana dashboard) with fewer copies: 1 Kafka broker (RF=1), 1 Postgres (no standby),
+small fixed JVM heaps, no backups (skips cert-manager/Barman/SeaweedFS), no EFK (use `kubectl logs`),
+trimmed Prometheus (no node-exporter/default rules). Overrides live in `k8s/values/banking-demo.yaml`
+and `k8s/values/kube-prometheus-stack-demo.yaml`. Switching profiles on an existing cluster is not
+supported (Strimzi can't shrink a KRaft quorum in place): `kind delete cluster --name banking` first.
+
+| Piece | What runs | Notes |
+|---|---|---|
+| Ingress | ingress-nginx → `gateway-service` | `http://localhost` (kind maps host :80) |
+| Services | 1 replica each; HPA on CPU scales gateway to 2 and fraud to 3 (others capped at 1 to stay in the RAM budget), PDB `maxUnavailable: 1` | JSON logs (`json` profile), read-only root FS, non-root |
+| NetworkPolicy | each service accepts traffic only from its listed callers (`allowFrom` in values) + Prometheus | gateway only from the ingress-nginx namespace |
+| Kafka | Strimzi KRaft, 3 dual-role nodes, RF=3, `min.insync.replicas=2`, topics as `KafkaTopic` CRs | Kafka Exporter for consumer lag |
+| Postgres | CNPG `banking-pg`, primary + standby; one role + `<role>_db` per service (`Database` CRs), random passwords in `pg-<role>` secrets | `wal_level=logical` for Debezium |
+| CDC | Debezium Connect (plain Deployment) + post-install Job that upserts the outbox connector | DB password read via `${env:...}` config provider |
+| Backup | Barman Cloud plugin: continuous WAL archive + daily base backup (and one at install) to SeaweedFS S3, 7-day retention | PITR: `k8s/backup/restore-pitr.yaml` |
+| Metrics | kube-prometheus-stack; ServiceMonitor per service; "Banking Platform" Grafana dashboard (req/s, p95, 5xx, consumer lag, heap, DB pool) | `kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80` |
+| Logs | Fluent Bit (namespace `banking` only) → ECK Elasticsearch → Kibana, index `banking-*` | `kubectl -n logging port-forward svc/banking-kb-kb-http 5601`, then create data view `banking-*` (time field `@timestamp`) |
+
+Known limits:
+- SeaweedFS stands in for MinIO (MinIO stopped publishing images) and lives in the same cluster: fine for a demo, not a real off-site backup.
+- CDC across a Postgres failover relies on PG17+ failover slots: the `debezium` slot is pre-created with
+  `failover=true` (Debezium 2.7 cannot), CNPG `synchronizeLogicalDecoding` copies it to the standby,
+  a 10s Debezium heartbeat (`debezium_heartbeat` table) keeps it advancing so it is sync-ready, and a
+  janitor sidecar drops the stale slot the old primary keeps when it rejoins. Right after a failover
+  the new standby needs ~2-3 min to re-sync the slot; a second failover inside that window can still
+  miss outbox rows. Recovery (safe: every consumer is idempotent) re-emits the request of stuck sagas:
+  `INSERT INTO outbox_event (id, aggregatetype, aggregateid, type, payload, created_at, traceparent)
+  SELECT gen_random_uuid(), o.aggregatetype, o.aggregateid, o.type, o.payload, now(), o.traceparent
+  FROM outbox_event o JOIN transfer t ON o.payload->>'transferId' = t.id::text
+  WHERE t.status = 'PENDING' AND o.aggregatetype = 'transfer.requested';` (on `transfer_db`).
+- ingress-nginx is retired upstream (2026); the Ingress object is standard, so swapping controllers is a values change.
+
+## Website (web/)
+
+The customer-facing banking site: React 19 + React Router 6 + TypeScript (strict) on Vite 4, talking to the gateway only. The toolchain is pinned to versions that still run on Node 14 (Vite 4.5, `@vitejs/plugin-react` 4, TypeScript 5.9, Vitest 0.34); lockfiles are `lockfileVersion: 2` so npm 6 (bundled with Node 14) and newer npm both honour them.
+
+- **Public:** landing page, sign-in, and registration (opens a first VND account automatically).
+- **Customer (`/app`):** overview with total balance per currency and account cards; accounts list and opening new ones; account detail with statement and the account id to share for receiving money; transfer with review step and a per-transfer `Idempotency-Key`; live transfer receipt that polls until the saga settles; transaction history with status filter; notifications; profile.
+- **Admin (`/admin`, `ROLE_ADMIN` only):** customers with search and lock/unlock; all accounts with owner and deposit; all transfers with status filter.
+
+```bash
+cd web
+npm install
+npm run dev     # http://localhost:5174 (GATEWAY_URL overrides http://localhost:8080)
+npm run typecheck   # tsc --noEmit (strict)
+npm test            # unit tests for format.ts and gateway.ts (vitest)
+npm run build       # type-check, then static bundle in dist/
+```
+
+Deploy as a container (build stage on Node 14, served by nginx, API paths proxied to the gateway):
+
+```bash
+docker compose -f server/docker/docker-compose.yml --profile web up -d --build web   # http://localhost:5174
+# or standalone:
+docker build -t banking/web web/ && docker run -p 5174:80 -e GATEWAY_URL=http://host.docker.internal:8080 banking/web
+```
+
+The session (JWT + profile) is kept in `sessionStorage`: a refresh keeps you signed in, closing the tab signs you out.
+
+## Test console (client/)
+
+A lightweight Vite + vanilla TypeScript console for exercising the system through the gateway. It keeps the JWT in memory, shows every request/response in a live API log, and has four tabs for every user plus three admin tabs:
+
+- **Tài khoản** — open accounts, list balances, inspect ledger entries. There is no deposit API; the tab prints the `psql` command to seed a balance.
+- **Chuyển tiền** — submit a transfer with an `Idempotency-Key`, then watch the saga poll to `COMPLETED` or `FAILED`.
+- **Thông báo** — notifications persisted by notification-service.
+- **Quản trị: Khách hàng / Tài khoản / Giao dịch** — shown only to `ROLE_ADMIN`: list all customers and lock/unlock them, list all accounts and deposit into them, list all transfers. Sign in as `admin@banking.local` / `admin12345` (set by `BANKING_ADMIN_EMAIL` / `BANKING_ADMIN_PASSWORD` in docker compose; unset means no admin is created).
+- **Kịch bản kiểm thử** — one-click checks for USER getting 403 on admin APIs, missing JWT, blocked internal routes, missing/replayed idempotency keys, fraud threshold, insufficient funds and velocity rejection. The partner-timeout/reversal case is manual because it needs a service restart.
+
+Prerequisites: Node.js `>=14.18.0`, plus npm. Start the backend first (`bash server/scripts/demo.sh`), then:
 
 ```bash
 cd client
 npm install
-npm run dev    # http://localhost:5173; set GATEWAY_URL to change the default http://localhost:8080
-npm test       # formatting/validation unit tests (node --test)
+npm run dev     # http://localhost:5173
 ```
 
-Start the backend first. The visual design is specified in [client/DESIGN.md](client/DESIGN.md).
+Vite proxies `/auth`, `/accounts`, `/transfers` and `/notifications` to the gateway, so the browser never calls the services directly and no CORS setup is needed. Override the target with `GATEWAY_URL=http://host:8080 npm run dev`.
 
-- **Public:** landing page, sign-in, registration (opens a first VND account).
-- **Customer (`/app`):** balances per currency, accounts, statements, a 3-step transfer (details, review, live receipt), history, notifications, profile.
-- **Admin (`/admin`, `ROLE_ADMIN`):** customers (search, lock/unlock), all accounts (deposit), all transfers. With Compose, sign in as `admin@test.local` / `Test@1234` (see [Test accounts by role](#test-accounts-by-role)).
+A Vite + React console for exercising the system through the gateway. It has no TypeScript, so `npm run typecheck` does not exist here. `npm test` runs the Node unit tests for `src/format.js`, and `npm run build` emits static assets to `client/dist/`.
 
-The session (JWT and profile) is kept in `sessionStorage`. A refresh keeps you signed in, and closing the tab signs you out.
+## CI/CD
 
-## How a transfer flows
+`.github/workflows/ci.yml` runs on every pull request and push to `main`:
 
-1. `POST /transfers` with an `Idempotency-Key`. The gateway checks the JWT and the header.
-2. Transfer-service validates both accounts with the ledger. In one transaction it writes the `transfer` row (PENDING) and a `transfer.requested` outbox row, then returns 202.
-3. Debezium reads the outbox from the WAL and publishes `transfer.requested` to Kafka.
-4. Fraud-service applies its rules, stores the evaluation, and publishes `fraud.decided` (APPROVED or REJECTED).
-5. Ledger-service locks both accounts in sorted UUID order and posts the debit and credit. A unique `(transfer_id, account_id, direction)` constraint makes this idempotent. It publishes `ledger.posted`, or `ledger.rejected` for insufficient funds or an unknown account.
-6. Transfer-service calls the partner bank. Success marks the transfer COMPLETED and emits `transfer.completed`. A timeout or failure marks it FAILED and emits `transfer.failed`.
-7. If a failure comes after posting, ledger-service consumes `transfer.failed` and writes reversing entries: it refunds the source and debits the destination.
-8. Notification-service stores a notification and simulates email/SMS for completed and failed transfers.
-
-### Failure scenarios
-
-| Scenario | Trigger | Expected result |
-|---|---|---|
-| Missing key | no `Idempotency-Key` on `POST /transfers` | 400 from the gateway |
-| Replay | same `Idempotency-Key` again | same transfer id, 200, no second saga |
-| Fraud threshold | amount above threshold | FAILED / FRAUD_REJECTED, balances unchanged |
-| Fraud velocity | more than 5 transfers in 60 s | FAILED / FRAUD_REJECTED from the 6th. The rule detail is only in `fraud_db.fraud_evaluation`. |
-| Insufficient funds | amount above balance | FAILED / INSUFFICIENT_FUNDS, balances unchanged |
-| Partner timeout | `BANKING_PARTNER_EXECUTE_PATH=/partner-slow/v1/transfers` (5 s delay vs 3 s timeout) | FAILED / PARTNER_TIMEOUT, then automatic ledger reversal |
-| Poison message | malformed event on a consumed topic | 3 retries, then `transfer.dlq` |
-
-To try the partner timeout:
-
-```bash
-BANKING_PARTNER_EXECUTE_PATH=/partner-slow/v1/transfers \
-  docker compose -f docker/docker-compose.yml up -d transfer-service
-```
-
-## Design decisions
-
-- **Money** is `BIGINT` in minor units. There are no floats anywhere.
-- **Kafka:** producers use `acks=all` with idempotence. Consumers read `read_committed`.
-- **Auth:** every service is an OAuth2 resource server that validates the RS256 public key.
-- **Concurrency:** the ledger combines `@Version` optimistic locking with pessimistic row locks while posting.
-- **Tracing:** one trace id follows a transfer across HTTP, Kafka and the outbox hop (the `outbox_event.traceparent` column, which Debezium copies into a Kafka header). In Kibana, filter on `app.traceId : "<id>"`. Rows in different databases correlate by `transfer_id`.
-- **Not implemented:** gateway rate limiting, because Spring Cloud Gateway's limiter needs Redis.
-
-## Kubernetes (kind)
-
-Requires docker, kind, kubectl and helm.
-
-```bash
-cd server
-bash k8s/install.sh                  # full profile, ~15 min first run, about 9 GB RAM (10 GB at most)
-PROFILE=demo bash k8s/install.sh     # low-memory profile, about 5 GB
-```
-
-`install.sh` can be re-run and prints the URLs and the smoke-test command at the end. Switching profiles on an existing cluster is not supported, because Strimzi cannot shrink a KRaft quorum. Run `kind delete cluster --name banking` first.
-
-`PROFILE=demo` keeps the same architecture with fewer copies. It has 1 Kafka broker, 1 Postgres with no standby, no backups, no EFK stack, and a trimmed Prometheus. Overrides are in `k8s/values/banking-demo.yaml` and `k8s/values/kube-prometheus-stack-demo.yaml`.
-
-| Piece | What runs |
+| Job | What it checks |
 |---|---|
-| Ingress | ingress-nginx → gateway at http://localhost |
-| Services | 1 replica each. HPA scales gateway to 2 and fraud to 3. PDB `maxUnavailable: 1`. JSON logs, read-only root FS, non-root. |
-| NetworkPolicy | Each service accepts only its listed callers and Prometheus. The gateway accepts only the ingress namespace. |
-| Kafka | Strimzi KRaft, 3 brokers, RF=3, `min.insync.replicas=2`, topics as `KafkaTopic` CRs |
-| Postgres | CloudNativePG primary + standby, one role and database per service, `wal_level=logical` |
-| CDC | Debezium Connect plus a job that upserts the outbox connector |
-| Backup | Barman Cloud plugin: continuous WAL and daily base backup to SeaweedFS S3, 7-day retention. PITR example: `k8s/backup/restore-pitr.yaml` |
-| Metrics | kube-prometheus-stack, a ServiceMonitor per service, "Banking Platform" Grafana dashboard. `kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80` |
-| Logs | Fluent Bit → ECK Elasticsearch → Kibana (index `banking-*`). `kubectl -n logging port-forward svc/banking-kb-kb-http 5601` |
+| `frontend` | `web/` and `client/` on Node 14.18.0, 14.x, 16, 18, 20, 22: `npm ci` → `npm run typecheck` → `npm test` → `npm run build` → `vite preview` smoke (root page + SPA deep link). The Node 14 `dist/` is kept as an artifact. |
+| `backend` | JDK 21, throwaway RS256 keys, `mvn verify` (all module unit tests + gateway context test). |
+| `helm` | `helm lint` of the `banking` chart, full and `PROFILE=demo` values. |
+| `images` | Builds the 6 service images and the `web` image (whose build stage is Node 14); runs the web image and checks `/healthz`, SPA fallback and the gateway proxy. |
 
-### Known limits
+On a push to `main` or a `v*` tag, `images` also pushes to GHCR as `ghcr.io/<owner>/banking/<image>` with tags
+`latest` (main), `sha-<short>`, the branch name and the semver of the tag. The path matches the chart's
+`<image.repository>/<service>` layout, so a cluster can roll out a CI build with
+`--set image.repository=ghcr.io/<owner>/banking --set image.tag=sha-<short>` (GHCR packages are private by default:
+make them public or add an image pull secret). Nothing is deployed to a cluster automatically.
 
-- SeaweedFS stands in for MinIO and runs inside the same cluster. That is fine for a demo but not a real off-site backup.
-- ingress-nginx is retired upstream. The Ingress object is standard, so swapping controllers is a values change.
-- **CDC across a Postgres failover** relies on PG17+ failover slots.
-  - The `debezium` slot is pre-created with `failover=true`, CNPG copies it to the standby, a 10 s heartbeat keeps it advancing, and a janitor sidecar drops the stale slot on the old primary.
-  - After a failover the new standby needs about 2-3 minutes to re-sync the slot. A second failover inside that window can miss outbox rows.
-  - Recovery is safe because every consumer is idempotent. On `transfer_db`, re-emit the request of stuck sagas:
+## Roadmap
 
-    ```sql
-    INSERT INTO outbox_event (id, aggregatetype, aggregateid, type, payload, created_at, traceparent)
-    SELECT gen_random_uuid(), o.aggregatetype, o.aggregateid, o.type, o.payload, now(), o.traceparent
-    FROM outbox_event o JOIN transfer t ON o.payload->>'transferId' = t.id::text
-    WHERE t.status = 'PENDING' AND o.aggregatetype = 'transfer.requested';
-    ```
+1. React SPA: done in `web/`. `client/` stays as the test console for now.
