@@ -13,15 +13,14 @@ SPA React nằm trong `web/`; `client/` vẫn là test console TypeScript không
 ## Cấu trúc
 
 ```
-client/                 test console (TypeScript, không framework, :5173)
-  index.html            điểm vào Vite
+client/                 test console trên trình duyệt (React 19 + Vite, JS thuần, :5173)
   DESIGN.md             token giao diện và ghi chú component
-  src/main.ts           đăng nhập/đăng ký, tài khoản, chuyển tiền, thông báo, kịch bản, tab quản trị
-  src/gateway.ts        wrapper fetch tới gateway, xử lý JWT, nhật ký API trực tiếp
-  src/scenarios.ts      kiểm tra tự động các đường lỗi
-  src/types.ts          kiểu dữ liệu response mà console đọc
-  src/style.css         style của console
-  vite.config.ts        dev server :5173, proxy các đường dẫn API tới gateway
+  src/main.jsx          điểm vào, định tuyến
+  src/shell.jsx, ui.jsx, hooks.js   bố cục, component dùng chung, hook
+  src/pages/            các trang public, user, transfer, admin
+  src/gateway.js        wrapper fetch tới gateway, xử lý JWT
+  src/format.js         định dạng tiền/ngày (có unit test)
+  vite.config.js        dev server :5173, proxy các đường dẫn API tới gateway
 
 web/                    website ngân hàng cho khách hàng + quản trị (React + TypeScript, :5174)
   src/types.ts          kiểu response API (phản chiếu các record *Response của service)
@@ -242,7 +241,7 @@ npm run dev     # http://localhost:5173
 
 Vite proxy `/auth`, `/accounts`, `/transfers` và `/notifications` tới gateway, nên trình duyệt không bao giờ gọi trực tiếp các service và không cần cấu hình CORS. Đổi đích bằng `GATEWAY_URL=http://host:8080 npm run dev`.
 
-`npm run typecheck` chạy `tsc`, `npm test` chạy unit test Vitest, và `npm run build` kiểm tra kiểu rồi xuất file tĩnh vào `client/dist/`.
+Console Vite + React để thử hệ thống qua gateway. Không dùng TypeScript, nên ở đây không có `npm run typecheck`. `npm test` chạy unit test Node cho `src/format.js`, và `npm run build` xuất file tĩnh vào `client/dist/`.
 
 ## CI/CD
 

@@ -2,20 +2,19 @@
   "name": "banking-client",
   "private": true,
   "type": "module",
-  "engines": {
-    "node": ">=14.18.0"
-  },
   "scripts": {
     "dev": "vite",
-    "typecheck": "tsc",
-    "build": "tsc && vite build",
+    "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "TZ=Asia/Ho_Chi_Minh node --test src/*.test.js"
+  },
+  "dependencies": {
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "react-router": "7.9.4"
   },
   "devDependencies": {
-    "@types/node": "14.18.63",
-    "typescript": "5.9.3",
-    "vite": "4.5.14",
-    "vitest": "0.34.6"
+    "@vitejs/plugin-react": "6.2.1",
+    "vite": "8.3.5"
   }
 }

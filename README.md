@@ -13,15 +13,14 @@ The React SPA lives in `web/`; `client/` stays a framework-free TypeScript test 
 ## Layout
 
 ```
-client/                 test console (TypeScript, no framework, :5173)
-  index.html            Vite entry point
+client/                 browser test console (React 19 + Vite, plain JS, :5173)
   DESIGN.md             visual tokens and component notes
-  src/main.ts           login/register, accounts, transfers, notifications, scenarios, admin tabs
-  src/gateway.ts        gateway fetch wrapper, JWT handling, live API log
-  src/scenarios.ts      automated failure-path checks
-  src/types.ts          response shapes the console reads
-  src/style.css         console styling
-  vite.config.ts        dev server on :5173, proxies API paths to the gateway
+  src/main.jsx          entry point, routes
+  src/shell.jsx, ui.jsx, hooks.js   layout, shared components, hooks
+  src/pages/            public, user, transfer, admin pages
+  src/gateway.js        gateway fetch wrapper and JWT handling
+  src/format.js         money/date formatting (unit-tested)
+  vite.config.js        dev server on :5173, proxies API paths to the gateway
 
 web/                    customer + admin banking website (React + TypeScript, :5174)
   src/types.ts          API response types (mirror the services' *Response records)
@@ -242,7 +241,7 @@ npm run dev     # http://localhost:5173
 
 Vite proxies `/auth`, `/accounts`, `/transfers` and `/notifications` to the gateway, so the browser never calls the services directly and no CORS setup is needed. Override the target with `GATEWAY_URL=http://host:8080 npm run dev`.
 
-`npm run typecheck` runs `tsc`, `npm test` runs the Vitest unit tests, and `npm run build` type-checks and then emits static assets to `client/dist/`.
+A Vite + React console for exercising the system through the gateway. It has no TypeScript, so `npm run typecheck` does not exist here. `npm test` runs the Node unit tests for `src/format.js`, and `npm run build` emits static assets to `client/dist/`.
 
 ## CI/CD
 
