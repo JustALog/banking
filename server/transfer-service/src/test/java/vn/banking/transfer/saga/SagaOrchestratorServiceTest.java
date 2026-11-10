@@ -139,6 +139,15 @@ class SagaOrchestratorServiceTest {
     }
 
     @Test
+    void authOutageFailsClosed() {
+        when(customerStatus.isActive("Bearer t")).thenThrow(new org.springframework.web.client.ResourceAccessException("down"));
+
+        assertThatThrownBy(() -> service.start(idemKey, customerId, sourceId, destId, 100, "VND", "Bearer t"))
+                .isInstanceOf(org.springframework.web.client.ResourceAccessException.class);
+        verify(transfers, never()).save(any());
+    }
+
+    @Test
     void destCurrencyMismatchHasCode() {
         when(customerStatus.isActive("Bearer t")).thenReturn(true);
         var source = new AccountValidationClient.LedgerAccount(sourceId, "VN0001", customerId, "VND", 1_000_000);
