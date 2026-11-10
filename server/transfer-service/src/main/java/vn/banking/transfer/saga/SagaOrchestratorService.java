@@ -17,6 +17,7 @@ import vn.banking.events.TransferCompletedEvent;
 import vn.banking.events.TransferFailedEvent;
 import vn.banking.events.TransferRequestedEvent;
 import vn.banking.transfer.account.AccountValidationClient;
+import vn.banking.transfer.account.CustomerStatusClient;
 import vn.banking.transfer.domain.OutboxEvent;
 import vn.banking.transfer.domain.OutboxEventRepository;
 import vn.banking.transfer.domain.Transfer;
@@ -40,15 +41,18 @@ public class SagaOrchestratorService {
     private final OutboxEventRepository outbox;
     private final AccountValidationClient accountValidation;
     private final PartnerBankClient partnerBank;
+    private final CustomerStatusClient customerStatus;
 
     public SagaOrchestratorService(TransferRepository transfers,
             OutboxEventRepository outbox,
             AccountValidationClient accountValidation,
-            PartnerBankClient partnerBank) {
+            PartnerBankClient partnerBank,
+            CustomerStatusClient customerStatus) {
         this.transfers = transfers;
         this.outbox = outbox;
         this.accountValidation = accountValidation;
         this.partnerBank = partnerBank;
+        this.customerStatus = customerStatus;
     }
 
     /**
@@ -68,6 +72,9 @@ public class SagaOrchestratorService {
             return new StartResult(t, false);
         }
 
+        if (!customerStatus.isActive(bearerToken)) {
+            throw new AccountValidationException("CUSTOMER_LOCKED", "Customer is locked");
+        }
         validateAccounts(customerId, sourceAccountId, destAccountId, currency, bearerToken);
 
         Transfer transfer = new Transfer(idempotencyKey, customerId, sourceAccountId, destAccountId, amount, currency);

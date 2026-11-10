@@ -41,6 +41,8 @@ spring:
       observation-enabled: true   # send the current trace as a "traceparent" header
 
 banking:
+  auth:
+    base-url: ${BANKING_AUTH_URL:http://localhost:8081}
   ledger:
     base-url: ${BANKING_LEDGER_URL:http://localhost:8082}
   partner:
