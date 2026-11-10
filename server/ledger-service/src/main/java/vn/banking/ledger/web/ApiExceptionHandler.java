@@ -7,6 +7,8 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import vn.banking.ledger.account.AccountService;
 
@@ -35,5 +37,12 @@ public class ApiExceptionHandler {
                 .map(err -> Map.of("field", err.getField(), "message", String.valueOf(err.getDefaultMessage())))
                 .toList());
         return detail;
+    }
+
+    @ExceptionHandler({MissingRequestHeaderException.class, MethodArgumentTypeMismatchException.class})
+    ProblemDetail badRequestInput(Exception e) {
+        ProblemDetail d = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Missing or malformed request parameter");
+        d.setProperty("code", "VALIDATION_FAILED");
+        return d;
     }
 }

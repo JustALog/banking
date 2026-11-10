@@ -21,6 +21,14 @@ spring:
           filters:
             - SetStatus=404
 
+        # Admin deposit must carry a UUID Idempotency-Key; above /accounts/**.
+        - id: ledger-deposit
+          uri: ${BANKING_LEDGER_URL:http://localhost:8082}
+          predicates:
+            - Path=/accounts/admin/*/deposit
+          filters:
+            - name: IdempotencyKey
+
         - id: auth-service
           uri: ${BANKING_AUTH_URL:http://localhost:8081}
           predicates:

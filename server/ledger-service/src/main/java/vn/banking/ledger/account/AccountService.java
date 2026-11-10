@@ -56,15 +56,19 @@ public class AccountService {
     }
 
     /**
-     * Admin cash-in. shortcut: single CREDIT entry with a fresh reference id in transfer_id (no
+     * Admin cash-in, idempotent on `reference` (the Idempotency-Key). shortcut: single CREDIT entry with the reference in transfer_id (no
      * cash/suspense account, so it is not double-entry); add a bank cash account when deposits become real.
      */
     @Transactional
-    public Account deposit(UUID accountId, long amount) {
+    public Account deposit(UUID accountId, long amount, UUID reference) {
         Account account = repository.findByIdForUpdate(accountId)
                 .orElseThrow(() -> new AccountNotFoundException(accountId));
+        // checked after the row lock, so concurrent retries serialize here
+        if (entries.existsByTransferIdAndAccountId(reference, accountId)) {
+            return account;
+        }
         account.credit(amount);
-        entries.save(new LedgerEntry(UUID.randomUUID(), account.getId(), LedgerEntry.Direction.CREDIT, amount));
+        entries.save(new LedgerEntry(reference, account.getId(), LedgerEntry.Direction.CREDIT, amount));
         return account;
     }
 
