@@ -1,12 +1,12 @@
-# Banking Platform — Core Platform, Services & Kubernetes (Round 3)
+# Banking Platform
 
 **English** · [Tiếng Việt](README.vi.md)
 
-Distributed banking & payment platform per `Architect_diagram.drawio`.
-- **Round 1**: Core money-movement path: Auth/Customer → Transfer (saga + outbox + Debezium CDC) → Fraud (stub) → Ledger (sole balance owner) → Partner Bank call (Resilience4j).
-- **Round 2**: **API Gateway** (Spring Cloud Gateway, JWT verification, Idempotency-Key enforcement), **Notification Service** (`notify_db`, consumes completed/failed events, mocks Email/SMS), **Fraud Service with persistence & real velocity rules** (`fraud_db`), and **Ledger Reversal Compensation** for partner bank failures after posting.
-- **Round 3**: **Kubernetes** (kind, Helm, Strimzi 3-broker KRaft Kafka, CloudNativePG primary+standby, NGINX Ingress, HPA/PDB/NetworkPolicy), **Backup** (Barman Cloud plugin → S3, daily + continuous WAL, PITR), **Observability** (kube-prometheus-stack + Grafana dashboard, Fluent Bit → ECK Elasticsearch/Kibana).
-- **Website**: React 19 + Vite UI in `client/` for customers and admins, served by nginx in the container image.
+Distributed banking & payment platform per `Architect_diagram.drawio`:
+- **Money movement:** Auth/Customer → Transfer (saga + outbox + Debezium CDC) → Fraud (threshold + velocity rules, persisted) → Ledger (sole balance owner, automatic reversal) → Partner Bank call (Resilience4j).
+- **Edge and notifications:** API Gateway (Spring Cloud Gateway, JWT verification, `Idempotency-Key` enforcement) and a Notification Service (mock email/SMS).
+- **Platform:** Kubernetes (kind, Helm, Strimzi 3-broker KRaft Kafka, CloudNativePG primary+standby, Ingress, HPA/PDB/NetworkPolicy), PITR backups (Barman Cloud → S3), observability (Prometheus + Grafana, Fluent Bit → Elasticsearch/Kibana).
+- **Website:** React 19 + Vite UI in `client/` for customers and admins, served by nginx in the container image.
 
 ## Layout
 
@@ -231,7 +231,3 @@ On a push to `main` or a `v*` tag, `images` also pushes to GHCR as `ghcr.io/<own
 `<image.repository>/<service>` layout, so a cluster can roll out a CI build with
 `--set image.repository=ghcr.io/<owner>/banking --set image.tag=sha-<short>` (GHCR packages are private by default:
 make them public or add an image pull secret). Nothing is deployed to a cluster automatically.
-
-## Roadmap
-
-1. The website is `client/`. The old `web/` TypeScript site was removed.
