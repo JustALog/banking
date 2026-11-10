@@ -32,7 +32,8 @@ public class SecurityConfig {
                         .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                         // Internal endpoints are called service-to-service with a forwarded user JWT:
                         // authentication only, ownership rules live in the calling service.
-                        .requestMatchers("/internal/**").authenticated()
+                        // Only the gateway (route block-internal) and the NetworkPolicy (allowFrom gateway-service, transfer-service) keep outsiders out.
+                        .requestMatchers("/accounts/internal/**").authenticated()
                         .requestMatchers("/accounts/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(rs -> rs.jwt(jwt -> jwt.jwtAuthenticationConverter(authoritiesConverter())))
