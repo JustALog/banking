@@ -28,6 +28,8 @@ class IdempotencyKeyGatewayFilterFactoryTest {
         factory.apply(new IdempotencyKeyGatewayFilterFactory.Config()).filter(exchange, chain).block();
 
         assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        String body = exchange.getResponse().getBodyAsString().block();
+        assertThat(body).contains("\"code\":\"IDEMPOTENCY_KEY_MISSING\"").contains("\"status\":400");
         verify(chain, never()).filter(any());
     }
 

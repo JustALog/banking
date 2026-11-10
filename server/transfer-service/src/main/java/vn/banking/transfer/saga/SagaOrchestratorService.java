@@ -151,23 +151,23 @@ public class SagaOrchestratorService {
             String currency, String bearerToken) {
         var source = accountValidation.fetch(sourceAccountId, bearerToken);
         if (source == null) {
-            throw new AccountValidationException("Source account not found: " + sourceAccountId);
+            throw new AccountValidationException("SOURCE_ACCOUNT_INVALID", "Source account not found: " + sourceAccountId);
         }
         if (!customerId.equals(source.customerId())) {
-            throw new AccountValidationException("Source account does not belong to caller");
+            throw new AccountValidationException("SOURCE_ACCOUNT_INVALID", "Source account does not belong to caller");
         }
         if (!currency.equals(source.currency())) {
-            throw new AccountValidationException("Currency mismatch with source account");
+            throw new AccountValidationException("CURRENCY_MISMATCH", "Currency mismatch with source account");
+        }
+        if (sourceAccountId.equals(destAccountId)) {
+            throw new AccountValidationException("SELF_TRANSFER_NOT_ALLOWED", "Source and destination accounts must differ");
         }
         var dest = accountValidation.fetch(destAccountId, bearerToken);
         if (dest == null) {
-            throw new AccountValidationException("Destination account not found: " + destAccountId);
+            throw new AccountValidationException("ACCOUNT_NOT_FOUND", "Destination account not found: " + destAccountId);
         }
         if (!currency.equals(dest.currency())) {
-            throw new AccountValidationException("Currency mismatch with destination account");
-        }
-        if (sourceAccountId.equals(destAccountId)) {
-            throw new AccountValidationException("Source and destination accounts must differ");
+            throw new AccountValidationException("CURRENCY_MISMATCH", "Currency mismatch with destination account");
         }
     }
 
@@ -198,8 +198,15 @@ public class SagaOrchestratorService {
     }
 
     public static class AccountValidationException extends RuntimeException {
-        public AccountValidationException(String message) {
+        private final String code;
+
+        public AccountValidationException(String code, String message) {
             super(message);
+            this.code = code;
+        }
+
+        public String getCode() {
+            return code;
         }
     }
 }

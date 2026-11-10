@@ -31,7 +31,7 @@ public class IdempotencyKeyGatewayFilterFactory
                     var response = exchange.getResponse();
                     response.setStatusCode(HttpStatus.BAD_REQUEST);
                     response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
-                    byte[] bytes = "{\"error\":\"Missing or empty Idempotency-Key header\"}"
+                    byte[] bytes = "{\"status\":400,\"detail\":\"Missing or empty Idempotency-Key header\",\"code\":\"IDEMPOTENCY_KEY_MISSING\"}"
                             .getBytes(StandardCharsets.UTF_8);
                     DataBuffer buffer = response.bufferFactory().wrap(bytes);
                     return response.writeWith(Mono.just(buffer));
