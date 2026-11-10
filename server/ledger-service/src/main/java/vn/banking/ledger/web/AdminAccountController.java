@@ -31,7 +31,7 @@ public class AdminAccountController {
 
     @GetMapping
     public List<AccountResponse> all(@RequestParam(required = false) String q, Pageable pageable) {
-        return accountService.listAll(q, pageable).stream().map(AccountResponse::from).toList();
+        return accountService.listAll(q, Paging.unsorted(pageable)).stream().map(AccountResponse::from).toList();
     }
 
     @PostMapping("/{id}/deposit")

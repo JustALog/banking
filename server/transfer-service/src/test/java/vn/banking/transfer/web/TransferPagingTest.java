@@ -44,4 +44,15 @@ class TransferPagingTest {
         verify(saga).listAll(captor.capture());
         assertThat(captor.getValue().getPageSize()).isEqualTo(200);
     }
+
+    @Test
+    void clientSortIsIgnored() throws Exception {
+        when(saga.listAll(any())).thenReturn(List.of());
+
+        mvc.perform(get("/transfers/admin").param("sort", "bogus,desc")).andExpect(status().isOk());
+
+        var captor = ArgumentCaptor.forClass(Pageable.class);
+        verify(saga).listAll(captor.capture());
+        assertThat(captor.getValue().getSort().isUnsorted()).isTrue();
+    }
 }

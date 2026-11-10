@@ -26,7 +26,7 @@ public class NotificationController {
     @GetMapping
     public List<NotificationResponse> myNotifications(Authentication authentication, Pageable pageable) {
         UUID customerId = currentCustomer(authentication);
-        return notificationService.listFor(customerId, pageable).stream()
+        return notificationService.listFor(customerId, org.springframework.data.domain.PageRequest.of(pageable.getPageNumber(), pageable.getPageSize())).stream()
                 .map(NotificationResponse::from)
                 .toList();
     }

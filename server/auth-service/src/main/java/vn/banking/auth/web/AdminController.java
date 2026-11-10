@@ -30,7 +30,7 @@ public class AdminController {
 
     @GetMapping
     public List<CustomerResponse> list(@RequestParam(required = false) String q, Pageable pageable) {
-        return customerService.listAll(q, pageable).stream().map(CustomerResponse::from).toList();
+        return customerService.listAll(q, org.springframework.data.domain.PageRequest.of(pageable.getPageNumber(), pageable.getPageSize())).stream().map(CustomerResponse::from).toList();
     }
 
     @PostMapping("/{id}/lock")

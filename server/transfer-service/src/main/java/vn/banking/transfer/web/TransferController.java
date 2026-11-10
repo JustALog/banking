@@ -75,7 +75,7 @@ public class TransferController {
     @GetMapping
     public List<TransferResponse> myTransfers(Authentication authentication, Pageable pageable) {
         UUID me = currentCustomer(authentication);
-        return saga.listFor(me, pageable).stream()
+        return saga.listFor(me, Paging.unsorted(pageable)).stream()
                 .map(t -> TransferResponse.from(t, me))
                 .toList();
     }
@@ -83,7 +83,7 @@ public class TransferController {
     /** ROLE_ADMIN only (enforced in SecurityConfig). */
     @GetMapping("/admin")
     public List<TransferResponse> allTransfers(Pageable pageable) {
-        return saga.listAll(pageable).stream().map(t -> TransferResponse.from(t, null)).toList();
+        return saga.listAll(Paging.unsorted(pageable)).stream().map(t -> TransferResponse.from(t, null)).toList();
     }
 
     static UUID currentCustomer(Authentication authentication) {

@@ -62,7 +62,7 @@ public class AccountController {
     @GetMapping("/{id}/entries")
     public List<EntryResponse> entries(@PathVariable UUID id, Authentication authentication, Pageable pageable) {
         accountService.getOwnedAccount(id, currentCustomer(authentication));
-        return entryRepository.findByAccountIdOrderByCreatedAtDesc(id, pageable).stream()
+        return entryRepository.findByAccountIdOrderByCreatedAtDesc(id, Paging.unsorted(pageable)).stream()
                 .map(EntryResponse::from)
                 .toList();
     }
