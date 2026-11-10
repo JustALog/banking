@@ -198,7 +198,7 @@ export function TransactionDetail() {
               {t.status === 'FAILED' && !t.failureReason && <p className="alert bad">Giao dịch không thành công.</p>}
               {t.status === 'COMPLETED' && <p className="alert ok">Tiền đã vào tài khoản người nhận.</p>}
               <div className="row">
-                <Link className="btn btn-primary" to={`/app/transfer?from=${t.sourceAccountId}`}>Chuyển tiền mới</Link>
+                {t.direction !== 'IN' && <Link className="btn btn-primary" to={`/app/transfer?from=${t.sourceAccountId}`}>Chuyển tiền mới</Link>}
                 <Link className="btn btn-frost" to="/app/transactions">Về lịch sử</Link>
               </div>
               <div className="block" style={{ gap: 8 }}>
