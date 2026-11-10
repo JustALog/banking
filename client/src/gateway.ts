@@ -78,9 +78,14 @@ export async function api<T = any>(
 
 export const get = <T>(path: string) => () => api<T>('GET', path).then((r) => r.data);
 
+// Shared by login and register: both endpoints return the same session shape.
+export function startSession(data: Session): void {
+  setSession({ accessToken: data.accessToken, expiresAt: data.expiresAt, customer: data.customer });
+}
+
 export async function login(email: string, password: string): Promise<Customer> {
   const { data } = await api<Session>('POST', '/auth/login', { body: { email, password } });
-  setSession({ accessToken: data.accessToken, expiresAt: data.expiresAt, customer: data.customer });
+  startSession(data);
   return data.customer;
 }
 
