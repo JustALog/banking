@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router';
-import { ApiError, api, login } from '../gateway.ts';
+import { ApiError, api, login, startSession } from '../gateway.ts';
 import { useSession } from '../hooks.ts';
-import type { Customer, TransferStatus } from '../types.ts';
+import type { Customer, Session, TransferStatus } from '../types.ts';
 import { Receipt } from '../ui.tsx';
 
 const SAMPLE = { amount: 2500000, currency: 'VND', sourceAccountId: '', destAccountId: '' };
@@ -159,8 +159,8 @@ export function Register() {
   const [params] = useSearchParams();
   const { error, busy, onSubmit } = useSubmit(async ({ fullName, email, password, confirm }) => {
     if (password !== confirm) throw new Error('Hai mật khẩu không khớp.');
-    await api('POST', '/auth/register', { body: { fullName, email, password } });
-    await login(email, password);
+    const { data } = await api<Session>('POST', '/auth/register', { body: { fullName, email, password } });
+    startSession(data);
     // A new customer has no account yet; open one in VND so the dashboard is usable immediately.
     await api('POST', '/accounts', { body: { currency: 'VND' } }).catch(() => {});
     navigate('/app', { replace: true });
