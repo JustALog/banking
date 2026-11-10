@@ -15,6 +15,9 @@ export function Loaded<T>({ state, children, empty, isEmpty = (d) => Array.isArr
   return children(state.data as T);
 }
 
+export const MoreButton = ({ list }: { list: { more: boolean; loading: boolean; loadMore: () => Promise<void> } }) =>
+  list.more ? <div><button type="button" className="btn btn-frost" onClick={list.loadMore} disabled={list.loading}>Tải thêm</button></div> : null;
+
 export const EmptyState = ({ title, children, action }: { title: string; children?: ReactNode; action?: ReactNode }) => (
   <div className="empty">
     <h3>{title}</h3>

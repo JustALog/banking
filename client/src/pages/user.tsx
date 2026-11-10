@@ -2,9 +2,9 @@ import { useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router';
 import { api, get } from '../gateway.ts';
 import { STATUS, date, formatAccountNo, shortId, time, totalsByCurrency } from '../format.ts';
-import { useAccounts, useLoad, useSession } from '../hooks.ts';
+import { useAccounts, useLoad, usePaged, useSession } from '../hooks.ts';
 import type { Account, Customer, Entry, Message, Notification, Transfer } from '../types.ts';
-import { Amount, CopyButton, DayGroups, EmptyState, Loaded, PageHead, StatusBadge } from '../ui.tsx';
+import { Amount, CopyButton, DayGroups, EmptyState, Loaded, MoreButton, PageHead, StatusBadge } from '../ui.tsx';
 
 export const accountLabel = (accounts: Account[] | null | undefined, id: string, knownNo?: string | null) => {
   const no = knownNo ?? accounts?.find((a) => a.id === id)?.accountNo;
@@ -176,7 +176,7 @@ export function Accounts() {
 export function AccountDetail() {
   const { id } = useParams();
   const account = useLoad(get<Account>(`/accounts/${id}`), [id]);
-  const entries = useLoad(get<Entry[]>(`/accounts/${id}/entries`), [id]);
+  const entries = usePaged<Entry>(`/accounts/${id}/entries`);
   return (
     <Loaded state={account}>
       {(a) => (
@@ -212,6 +212,7 @@ export function AccountDetail() {
                   </DayGroups>
                 )}
               </Loaded>
+              <MoreButton list={entries} />
             </section>
             <section className="object stack">
               <h2>Nhận tiền vào tài khoản này</h2>
@@ -241,7 +242,7 @@ export function StatusFilter({ value, onChange }: { value: string; onChange: (v:
 }
 
 export function Transactions() {
-  const transfers = useLoad(get<Transfer[]>('/transfers'));
+  const transfers = usePaged<Transfer>('/transfers');
   const accounts = useAccounts();
   const [filter, setFilter] = useState('');
   return (
@@ -259,13 +260,14 @@ export function Transactions() {
               : <EmptyState title="Không có giao dịch nào ở trạng thái này" action={<button type="button" className="btn btn-frost" onClick={() => setFilter('')}>Xem tất cả</button>} />;
           }}
         </Loaded>
+        <MoreButton list={transfers} />
       </section>
     </>
   );
 }
 
 export function Notifications() {
-  const notes = useLoad(get<Notification[]>('/notifications'));
+  const notes = usePaged<Notification>('/notifications');
   return (
     <>
       <PageHead title="Thông báo">
@@ -292,6 +294,7 @@ export function Notifications() {
             </DayGroups>
           )}
         </Loaded>
+        <MoreButton list={notes} />
       </section>
     </>
   );
