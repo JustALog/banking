@@ -33,6 +33,15 @@ public class Transfer {
     @Column(name = "dest_account_id", nullable = false)
     private UUID destAccountId;
 
+    @Column(name = "source_account_no", length = 20)
+    private String sourceAccountNo;
+
+    @Column(name = "dest_account_no", length = 20)
+    private String destAccountNo;
+
+    @Column(name = "dest_customer_id")
+    private UUID destCustomerId;
+
     @Column(nullable = false)
     private long amount;
 
@@ -80,6 +89,12 @@ public class Transfer {
         this.currency = currency;
     }
 
+    public void setAccountDetails(String sourceAccountNo, String destAccountNo, UUID destCustomerId) {
+        this.sourceAccountNo = sourceAccountNo;
+        this.destAccountNo = destAccountNo;
+        this.destCustomerId = destCustomerId;
+    }
+
     public void markCompleted() {
         this.status = Status.COMPLETED;
         this.failureReason = null;
@@ -110,6 +125,18 @@ public class Transfer {
 
     public UUID getDestAccountId() {
         return destAccountId;
+    }
+
+    public String getSourceAccountNo() {
+        return sourceAccountNo;
+    }
+
+    public String getDestAccountNo() {
+        return destAccountNo;
+    }
+
+    public UUID getDestCustomerId() {
+        return destCustomerId;
     }
 
     public long getAmount() {

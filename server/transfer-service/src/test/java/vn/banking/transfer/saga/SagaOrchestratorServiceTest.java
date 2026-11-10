@@ -62,7 +62,7 @@ class SagaOrchestratorServiceTest {
         stubAccountsValid();
         when(transfers.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        var result = service.start(idemKey, customerId, sourceId, destId, 250_000, "VND", "Bearer t");
+        var result = service.start(idemKey, customerId, sourceId, destId, null, 250_000, "VND", "Bearer t");
 
         assertThat(result.created()).isTrue();
         assertThat(result.transfer().getStatus()).isEqualTo(Transfer.Status.PENDING);
@@ -82,7 +82,7 @@ class SagaOrchestratorServiceTest {
         Transfer existing = new Transfer(idemKey, customerId, sourceId, destId, 250_000, "VND");
         when(transfers.findByCustomerIdAndIdempotencyKey(customerId, idemKey)).thenReturn(Optional.of(existing));
 
-        var result = service.start(idemKey, customerId, sourceId, destId, 250_000, "VND", "Bearer t");
+        var result = service.start(idemKey, customerId, sourceId, destId, null, 250_000, "VND", "Bearer t");
 
         assertThat(result.created()).isFalse();
         assertThat(result.transfer()).isSameAs(existing);
@@ -101,7 +101,7 @@ class SagaOrchestratorServiceTest {
         when(transfers.findByCustomerIdAndIdempotencyKey(customerB, idemKey)).thenReturn(Optional.empty());
         when(transfers.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        var result = service.start(idemKey, customerB, sourceId, destId, 250_000, "VND", "Bearer t");
+        var result = service.start(idemKey, customerB, sourceId, destId, null, 250_000, "VND", "Bearer t");
 
         assertThat(result.created()).isTrue();
     }
@@ -111,7 +111,7 @@ class SagaOrchestratorServiceTest {
         Transfer existing = new Transfer(idemKey, customerId, sourceId, destId, 250_000, "VND");
         when(transfers.findByCustomerIdAndIdempotencyKey(customerId, idemKey)).thenReturn(Optional.of(existing));
 
-        assertThatThrownBy(() -> service.start(idemKey, customerId, sourceId, destId, 300_000, "VND", "Bearer t"))
+        assertThatThrownBy(() -> service.start(idemKey, customerId, sourceId, destId, null, 300_000, "VND", "Bearer t"))
                 .isInstanceOf(SagaOrchestratorService.IdempotencyConflictException.class);
         verify(transfers, never()).save(any());
     }
@@ -122,7 +122,7 @@ class SagaOrchestratorServiceTest {
         var otherCustomer = new AccountValidationClient.LedgerAccount(sourceId, "VN0001", UUID.randomUUID(), "VND", 100);
         when(accountValidation.fetch(any(), anyString())).thenReturn(otherCustomer);
 
-        assertThatThrownBy(() -> service.start(idemKey, customerId, sourceId, destId, 100, "VND", "Bearer t"))
+        assertThatThrownBy(() -> service.start(idemKey, customerId, sourceId, destId, null, 100, "VND", "Bearer t"))
                 .isInstanceOf(SagaOrchestratorService.AccountValidationException.class);
         verify(transfers, never()).save(any());
         verify(outbox, never()).save(any());
@@ -132,7 +132,7 @@ class SagaOrchestratorServiceTest {
     void lockedCustomerCannotStartTransfer() {
         when(customerStatus.isActive("Bearer t")).thenReturn(false);
 
-        assertThatThrownBy(() -> service.start(idemKey, customerId, sourceId, destId, 100, "VND", "Bearer t"))
+        assertThatThrownBy(() -> service.start(idemKey, customerId, sourceId, destId, null, 100, "VND", "Bearer t"))
                 .isInstanceOf(SagaOrchestratorService.AccountValidationException.class)
                 .extracting("code").isEqualTo("CUSTOMER_LOCKED");
         verify(transfers, never()).save(any());
@@ -142,7 +142,7 @@ class SagaOrchestratorServiceTest {
     void authOutageFailsClosed() {
         when(customerStatus.isActive("Bearer t")).thenThrow(new org.springframework.web.client.ResourceAccessException("down"));
 
-        assertThatThrownBy(() -> service.start(idemKey, customerId, sourceId, destId, 100, "VND", "Bearer t"))
+        assertThatThrownBy(() -> service.start(idemKey, customerId, sourceId, destId, null, 100, "VND", "Bearer t"))
                 .isInstanceOf(org.springframework.web.client.ResourceAccessException.class);
         verify(transfers, never()).save(any());
     }
@@ -155,7 +155,7 @@ class SagaOrchestratorServiceTest {
         when(accountValidation.fetch(sourceId, "Bearer t")).thenReturn(source);
         when(accountValidation.fetch(destId, "Bearer t")).thenReturn(dest);
 
-        assertThatThrownBy(() -> service.start(idemKey, customerId, sourceId, destId, 100, "VND", "Bearer t"))
+        assertThatThrownBy(() -> service.start(idemKey, customerId, sourceId, destId, null, 100, "VND", "Bearer t"))
                 .isInstanceOf(SagaOrchestratorService.AccountValidationException.class)
                 .extracting("code").isEqualTo("CURRENCY_MISMATCH");
     }
@@ -166,7 +166,7 @@ class SagaOrchestratorServiceTest {
         var source = new AccountValidationClient.LedgerAccount(sourceId, "VN0001", customerId, "VND", 1_000_000);
         when(accountValidation.fetch(sourceId, "Bearer t")).thenReturn(source);
 
-        assertThatThrownBy(() -> service.start(idemKey, customerId, sourceId, sourceId, 100, "VND", "Bearer t"))
+        assertThatThrownBy(() -> service.start(idemKey, customerId, sourceId, sourceId, null, 100, "VND", "Bearer t"))
                 .isInstanceOf(SagaOrchestratorService.AccountValidationException.class)
                 .extracting("code").isEqualTo("SELF_TRANSFER_NOT_ALLOWED");
     }
@@ -232,6 +232,69 @@ class SagaOrchestratorServiceTest {
                 sourceId, destId, 100, "VND", Instant.now()));
         verify(partnerBank, never()).executeTransfer(any(), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any());
         verify(outbox, never()).save(any());
+    }
+
+    @Test
+    void startByAccountNoResolvesDest() {
+        UUID destCustomer = UUID.randomUUID();
+        when(customerStatus.isActive("Bearer t")).thenReturn(true);
+        when(accountValidation.fetch(sourceId, "Bearer t")).thenReturn(
+                new AccountValidationClient.LedgerAccount(sourceId, "VN0000000001", customerId, "VND", 1_000_000));
+        when(accountValidation.fetchByNo("VN0000000002", "Bearer t")).thenReturn(
+                new AccountValidationClient.LedgerAccount(destId, "VN0000000002", destCustomer, "VND", 50));
+        when(transfers.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        var t = service.start(idemKey, customerId, sourceId, null, "VN0000000002", 100, "VND", "Bearer t").transfer();
+
+        assertThat(t.getDestAccountId()).isEqualTo(destId);
+        assertThat(t.getDestAccountNo()).isEqualTo("VN0000000002");
+        assertThat(t.getSourceAccountNo()).isEqualTo("VN0000000001");
+        assertThat(t.getDestCustomerId()).isEqualTo(destCustomer);
+    }
+
+    @Test
+    void startByOwnAccountNoIsSelfTransfer() {
+        when(customerStatus.isActive("Bearer t")).thenReturn(true);
+        var source = new AccountValidationClient.LedgerAccount(sourceId, "VN0000000001", customerId, "VND", 1);
+        when(accountValidation.fetch(sourceId, "Bearer t")).thenReturn(source);
+        when(accountValidation.fetchByNo("VN0000000001", "Bearer t")).thenReturn(source);
+        assertThatThrownBy(() -> service.start(idemKey, customerId, sourceId, null, "VN0000000001", 100, "VND", "Bearer t"))
+                .isInstanceOfSatisfying(SagaOrchestratorService.AccountValidationException.class,
+                        e -> assertThat(e.getCode()).isEqualTo("SELF_TRANSFER_NOT_ALLOWED"));
+    }
+
+    @Test
+    void replayByAccountNoReturnsExisting() {
+        Transfer existing = new Transfer(idemKey, customerId, sourceId, destId, 250_000, "VND");
+        existing.setAccountDetails("VN0000000001", "VN0000000002", UUID.randomUUID());
+        when(transfers.findByCustomerIdAndIdempotencyKey(customerId, idemKey)).thenReturn(Optional.of(existing));
+        var result = service.start(idemKey, customerId, sourceId, null, "VN0000000002", 250_000, "VND", "Bearer t");
+        assertThat(result.created()).isFalse();
+    }
+
+    @Test
+    void completedEventCarriesDestCustomer() {
+        Transfer pending = pendingTransfer();
+        UUID destCustomer = UUID.randomUUID();
+        pending.setAccountDetails("VN0000000001", "VN0000000002", destCustomer);
+        when(transfers.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(partnerBank.executeTransfer(any(), any(), any(), org.mockito.ArgumentMatchers.anyLong(), any()))
+                .thenReturn(new PartnerBankClient.PartnerTransferResult(true, null));
+
+        service.onLedgerPosted(new vn.banking.events.LedgerPostedEvent(pending.getId(),
+                sourceId, destId, 250_000, "VND", Instant.now()));
+
+        ArgumentCaptor<OutboxEvent> captor = ArgumentCaptor.forClass(OutboxEvent.class);
+        verify(outbox).save(captor.capture());
+        var ev = vn.banking.events.EventJson.read(captor.getValue().getPayload(), TransferCompletedEvent.class);
+        assertThat(ev.destCustomerId()).isEqualTo(destCustomer);
+    }
+
+    @Test
+    void legacyTransferWithNullAccountNoMapsToResponse() {
+        var r = vn.banking.transfer.web.dto.TransferResponse.from(pendingTransfer());
+        assertThat(r.destAccountNo()).isNull();
+        assertThat(r.sourceAccountNo()).isNull();
     }
 
     private Transfer pendingTransfer() {

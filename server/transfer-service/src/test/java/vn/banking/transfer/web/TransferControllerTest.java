@@ -36,7 +36,7 @@ class TransferControllerTest {
         UUID customerId = UUID.randomUUID();
         var t = new Transfer("k", customerId, UUID.randomUUID(), UUID.randomUUID(), 100, "VND");
         org.springframework.test.util.ReflectionTestUtils.setField(t, "id", UUID.randomUUID());
-        when(saga.start(anyString(), any(), any(), any(), anyLong(), anyString(), anyString()))
+        when(saga.start(anyString(), any(), any(), any(), any(), anyLong(), anyString(), anyString()))
                 .thenThrow(new DataIntegrityViolationException("dup"))
                 .thenReturn(new StartResult(t, false));
         var jwt = new Jwt("tok", Instant.now(), Instant.now().plusSeconds(60),
@@ -44,10 +44,19 @@ class TransferControllerTest {
         var auth = new JwtAuthenticationToken(jwt, List.of());
 
         var response = controller.create(
-                new CreateTransferRequest(t.getSourceAccountId(), t.getDestAccountId(), 100, "VND"), "k", auth);
+                new CreateTransferRequest(t.getSourceAccountId(), t.getDestAccountId(), null, 100, "VND"), "k", auth);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(((TransferResponse) response.getBody()).id()).isEqualTo(t.getId());
-        verify(saga, times(2)).start(anyString(), any(), any(), any(), anyLong(), anyString(), anyString());
+        verify(saga, times(2)).start(anyString(), any(), any(), any(), any(), anyLong(), anyString(), anyString());
+    }
+
+    @Test
+    void exactlyOneDestinationRequired() {
+        UUID a = UUID.randomUUID();
+        assertThat(new CreateTransferRequest(a, a, null, 1, "VND").isDestinationGiven()).isTrue();
+        assertThat(new CreateTransferRequest(a, null, "VN0123456789", 1, "VND").isDestinationGiven()).isTrue();
+        assertThat(new CreateTransferRequest(a, a, "VN0123456789", 1, "VND").isDestinationGiven()).isFalse();
+        assertThat(new CreateTransferRequest(a, null, null, 1, "VND").isDestinationGiven()).isFalse();
     }
 }
