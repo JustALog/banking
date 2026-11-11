@@ -40,24 +40,34 @@ step() { printf '\n=== %s ===\n' "$*"; }
 jqget() { python3 -c "import sys,json;d=json.load(sys.stdin);print(d$1)" 2>/dev/null \
   || node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8'));console.log(d$1)" 2>/dev/null; }
 
-step "1. Register customer $EMAIL"
-curl -sf -X POST "$AUTH_URL/auth/register" -H 'Content-Type: application/json' \
-  -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\",\"fullName\":\"Smoke Test\"}" | head -c 400; echo
+EMAIL2="smoke-rcv-$(date +%s)@example.com"
 
-step "2. Login"
+step "1. Register sender $EMAIL (register returns a session)"
+curl -sf -X POST "$AUTH_URL/auth/register" -H 'Content-Type: application/json' \
+  -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\",\"fullName\":\"Smoke Sender\"}" | head -c 400; echo
+
+step "2. Login sender; register receiver $EMAIL2"
 TOKEN=$(curl -sf -X POST "$AUTH_URL/auth/login" -H 'Content-Type: application/json' \
   -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" | jqget "['accessToken']")
 [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ] || { echo "login failed"; exit 1; }
-echo "token acquired (${#TOKEN} chars)"
+TOKEN2=$(curl -sf -X POST "$AUTH_URL/auth/register" -H 'Content-Type: application/json' \
+  -d "{\"email\":\"$EMAIL2\",\"password\":\"$PASSWORD\",\"fullName\":\"Smoke Receiver\"}" | jqget "['accessToken']")
+[ -n "$TOKEN2" ] && [ "$TOKEN2" != "null" ] || { echo "receiver register failed"; exit 1; }
+echo "tokens acquired (${#TOKEN} / ${#TOKEN2} chars)"
 
 AUTH="Authorization: Bearer $TOKEN"
+AUTH2="Authorization: Bearer $TOKEN2"
 
-step "3. Open two accounts"
+# One payment account per customer, so the receiver is a second customer.
+step "3. Each customer opens one account; a second open is rejected"
 SRC=$(curl -sf -X POST "$LEDGER_URL/accounts" -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"currency":"VND"}' | jqget "['id']")
-DST=$(curl -sf -X POST "$LEDGER_URL/accounts" -H "$AUTH" -H 'Content-Type: application/json' \
-  -d '{"currency":"VND"}' | jqget "['id']")
-echo "source=$SRC dest=$DST"
+DST_JSON=$(curl -sf -X POST "$LEDGER_URL/accounts" -H "$AUTH2" -H 'Content-Type: application/json' -d '{"currency":"VND"}')
+DST=$(echo "$DST_JSON" | jqget "['id']")
+DST_NO=$(echo "$DST_JSON" | jqget "['accountNo']")
+SECOND=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$LEDGER_URL/accounts" -H "$AUTH" -H 'Content-Type: application/json' -d '{"currency":"VND"}')
+[ "$SECOND" = "409" ] || { echo "ONE-ACCOUNT RULE BROKEN: second open returned $SECOND"; exit 1; }
+echo "source=$SRC dest=$DST ($DST_NO); second open -> 409"
 
 step "4. Seed source account balance (dev seed via psql)"
 $PSQL -d ledger_db -c "UPDATE account SET balance = 10000000 WHERE id = '$SRC';"
@@ -75,14 +85,14 @@ step "5. Create transfer (Idempotency-Key enforced)"
 KEY="smoke-$(date +%s)"
 RESP=$(curl -sf -w '\nHTTP:%{http_code}' -X POST "$TRANSFER_URL/transfers" \
   -H "$AUTH" -H 'Content-Type: application/json' -H "Idempotency-Key: $KEY" \
-  -d "{\"sourceAccountId\":\"$SRC\",\"destAccountId\":\"$DST\",\"amount\":$AMOUNT,\"currency\":\"VND\"}")
+  -d "{\"sourceAccountId\":\"$SRC\",\"destAccountNo\":\"$DST_NO\",\"amount\":$AMOUNT,\"currency\":\"VND\"}")
 echo "$RESP"
 TRANSFER_ID=$(echo "$RESP" | head -1 | jqget "['id']")
 
 step "6. Replay same Idempotency-Key (must return the same transfer id, no new saga)"
 RESP2=$(curl -sf -w '\nHTTP:%{http_code}' -X POST "$TRANSFER_URL/transfers" \
   -H "$AUTH" -H 'Content-Type: application/json' -H "Idempotency-Key: $KEY" \
-  -d "{\"sourceAccountId\":\"$SRC\",\"destAccountId\":\"$DST\",\"amount\":$AMOUNT,\"currency\":\"VND\"}")
+  -d "{\"sourceAccountId\":\"$SRC\",\"destAccountNo\":\"$DST_NO\",\"amount\":$AMOUNT,\"currency\":\"VND\"}")
 TRANSFER_ID2=$(echo "$RESP2" | head -1 | jqget "['id']")
 [ "$TRANSFER_ID" = "$TRANSFER_ID2" ] || { echo "IDEMPOTENCY BROKEN: $TRANSFER_ID != $TRANSFER_ID2"; exit 1; }
 echo "idempotent replay OK"
@@ -100,13 +110,19 @@ echo "final status: $STATUS"
 
 step "8. Verify balances and statement"
 curl -sf "$LEDGER_URL/accounts/$SRC" -H "$AUTH" | jqget "['balance']"
-curl -sf "$LEDGER_URL/accounts/$DST" -H "$AUTH" | jqget "['balance']"
+curl -sf "$LEDGER_URL/accounts/$DST" -H "$AUTH2" | jqget "['balance']"
+INCOMING=$(curl -sf "$TRANSFER_URL/transfers" -H "$AUTH2" | jqget "[0]['direction']")
+[ "$INCOMING" = "IN" ] || { echo "RECEIVER DOES NOT SEE INCOMING TRANSFER: $INCOMING"; exit 1; }
+echo "receiver sees the transfer as IN"
 curl -sf "$LEDGER_URL/accounts/$SRC/entries" -H "$AUTH" | head -c 500; echo
 
 step "9. Verify Notification was generated"
 sleep 2
 NOTIFS=$(curl -sf "$NOTIFY_URL/notifications" -H "$AUTH")
 echo "notifications: $NOTIFS" | head -c 500; echo
+NOTIFS2=$(curl -sf "$NOTIFY_URL/notifications" -H "$AUTH2")
+echo "receiver notifications: $NOTIFS2" | head -c 500; echo
+echo "$NOTIFS2" | grep -q "Bạn vừa nhận tiền" || { echo "RECEIVER NOT NOTIFIED"; exit 1; }
 
 echo
 echo "SMOKE TEST PASSED"
