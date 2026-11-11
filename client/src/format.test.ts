@@ -85,5 +85,5 @@ test('messageFor prefers a known error code over the English detail', () => {
   assert.equal(messageFor(422, { code: 'UNKNOWN_CODE', detail: 'Boom' }), 'Boom');
   assert.equal(messageFor(429, { code: 'TOO_MANY_ATTEMPTS' }), 'Bạn nhập sai quá nhiều lần. Thử lại sau 15 phút.');
   assert.equal(messageFor(404, { code: 'NOT_FOUND' }), 'Không tìm thấy dữ liệu, hoặc bạn không có quyền xem.');
-  assert.equal(messageFor(409, { code: 'ACCOUNT_LIMIT_REACHED' }), 'Bạn đã có tối đa 10 tài khoản.');
+  assert.equal(messageFor(409, { code: 'ACCOUNT_LIMIT_REACHED' }), 'Mỗi khách hàng chỉ được mở một tài khoản.');
 });
