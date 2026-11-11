@@ -46,7 +46,7 @@ tài khoản admin được auth-service tạo lúc khởi động từ `BANKING
 | `ACCOUNT_NOT_FOUND` | 422 | Không tìm thấy tài khoản nhận |
 | `CURRENCY_MISMATCH` | 422 | Hai tài khoản khác loại tiền |
 | `SELF_TRANSFER_NOT_ALLOWED` | 422 | Chuyển cho chính tài khoản nguồn |
-| `ACCOUNT_LIMIT_REACHED` | 409 | Đã đủ 10 tài khoản |
+| `ACCOUNT_LIMIT_REACHED` | 409 | Khách hàng đã có tài khoản (mỗi khách 1 tài khoản) |
 | `UPSTREAM_UNAVAILABLE` | 503 | auth/ledger không phản hồi (timeout kết nối 2s, đọc 5s) |
 
 **Phân trang:** các API danh sách nhận `?page` (bắt đầu từ 0) và `&size` (mặc định 50, tối đa 200);
@@ -180,7 +180,7 @@ Ledger là nơi duy nhất giữ số dư tài khoản.
 ```
 
 - Header `Location: /accounts/{id}`
-- **Lỗi:** `400` currency không hợp lệ, `401` thiếu token, `409` đã đủ 10 tài khoản (`ACCOUNT_LIMIT_REACHED`).
+- **Lỗi:** `400` currency không hợp lệ, `401` thiếu token, `409` khách hàng đã có tài khoản (`ACCOUNT_LIMIT_REACHED`, mỗi khách 1 tài khoản).
 
 ### `GET /accounts` — Tài khoản của tôi
 

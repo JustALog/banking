@@ -15,7 +15,8 @@ import vn.banking.ledger.entry.LedgerEntryRepository;
 public class AccountService {
 
     private static final SecureRandom RANDOM = new SecureRandom();
-    private static final int MAX_ACCOUNTS_PER_CUSTOMER = 10;
+    // Product rule: one payment account per customer; older customers keep extra accounts, only new opens are blocked.
+    private static final int MAX_ACCOUNTS_PER_CUSTOMER = 1;
 
     private final AccountRepository repository;
     private final LedgerEntryRepository entries;
