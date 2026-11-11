@@ -40,9 +40,9 @@ class AccountServiceTest {
     }
 
     @Test
-    void eleventhAccountRejected() {
+    void secondAccountRejected() {
         UUID customer = UUID.randomUUID();
-        when(accounts.countByCustomerId(customer)).thenReturn(10L);
+        when(accounts.countByCustomerId(customer)).thenReturn(1L);
 
         assertThatThrownBy(() -> new AccountService(accounts, entries).openAccount(customer, "VND"))
                 .isInstanceOf(AccountService.AccountLimitException.class);

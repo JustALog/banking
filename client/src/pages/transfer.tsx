@@ -124,10 +124,13 @@ function TransferForm({ accounts }: { accounts: Account[] }) {
 
       <fieldset>
         <legend>Chuyển đến</legend>
-        <div className="segmented">
-          <label><input type="radio" name="mode" value="own" checked={mode === 'own'} onChange={onInput(setMode)} />Tài khoản của tôi</label>
-          <label><input type="radio" name="mode" value="other" checked={mode === 'other'} onChange={onInput(setMode)} />Người khác</label>
-        </div>
+        {/* Only customers opened before the one-account rule still hold several accounts to move money between. */}
+        {accounts.length > 1 && (
+          <div className="segmented">
+            <label><input type="radio" name="mode" value="own" checked={mode === 'own'} onChange={onInput(setMode)} />Tài khoản của tôi</label>
+            <label><input type="radio" name="mode" value="other" checked={mode === 'other'} onChange={onInput(setMode)} />Người khác</label>
+          </div>
+        )}
         {mode === 'own' ? (
           targets.length ? (
             <span className="field">
@@ -135,7 +138,7 @@ function TransferForm({ accounts }: { accounts: Account[] }) {
                 {targets.map((a) => <option key={a.id} value={a.id}>{formatAccountNo(a.accountNo)} (số dư {money(a.balance, a.currency)})</option>)}
               </select>
             </span>
-          ) : <p className="hint">Bạn chưa có tài khoản {from.currency} nào khác. <Link to="/app/accounts">Mở thêm tài khoản</Link>.</p>
+          ) : <p className="hint">Bạn không có tài khoản {from.currency} nào khác.</p>
         ) : (
           <label>Số tài khoản người nhận
             <span className="field">

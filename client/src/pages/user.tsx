@@ -26,7 +26,6 @@ export function Dashboard() {
         <div className="spread">
           <p className="muted">Xin chào, {customer.fullName}</p>
           <div className="row">
-            <Link className="btn btn-frost" to="/app/accounts">Mở tài khoản</Link>
             {list.length === 1 && <CopyButton text={list[0].accountNo} label="Sao chép số tài khoản" className="btn btn-frost" />}
             <Link className="btn btn-primary" to="/app/transfer">Chuyển tiền</Link>
           </div>
@@ -157,17 +156,9 @@ export function Accounts() {
   const accounts = useAccounts();
   return (
     <>
-      <PageHead title="Tài khoản" lead="Mỗi tài khoản có số dư và sao kê riêng. Chuyển tiền chỉ đi giữa hai tài khoản cùng loại tiền." />
+      <PageHead title="Tài khoản" lead="Mỗi khách hàng có một tài khoản thanh toán, với số dư và sao kê riêng." />
       <Loaded state={accounts} empty={<NoAccount reload={accounts.reload} />}>
-        {(list) => (
-          <>
-            <div className="grid">{list.map((a) => <AccountCard key={a.id} account={a} />)}</div>
-            <section className="block">
-              <div className="block-head"><h2>Mở thêm tài khoản</h2></div>
-              <div style={{ paddingTop: 16 }}><OpenAccount onOpened={accounts.reload} /></div>
-            </section>
-          </>
-        )}
+        {(list) => <div className="grid">{list.map((a) => <AccountCard key={a.id} account={a} />)}</div>}
       </Loaded>
     </>
   );
