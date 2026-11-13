@@ -2,6 +2,7 @@
 #   from server/:  bash scripts/demo.sh      (build, start, register CDC, smoke test)
 # Kafka UI is opt-in:  docker compose --profile tools up -d
 # The Kubernetes round replaces this file with Strimzi, CloudNativePG, NGINX Ingress, etc.
+# All ports bind to 127.0.0.1: the demo uses fixed dev passwords, so nothing is reachable from the LAN.
 name: banking-dev
 
 # Shared settings for the Spring Boot services (one Dockerfile, --build-arg MODULE).
@@ -38,7 +39,7 @@ services:
     environment:
       POSTGRES_PASSWORD: admin
     ports:
-      - "5433:5432"                  # host 5432 is often taken by a local PostgreSQL
+      - "127.0.0.1:5433:5432"                  # host 5432 is often taken by a local PostgreSQL
     volumes:
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
       - pgdata:/var/lib/postgresql/data
@@ -67,7 +68,7 @@ services:
     image: apache/kafka:3.9.0
     container_name: banking-kafka
     ports:
-      - "9092:9092"
+      - "127.0.0.1:9092:9092"
     environment:
       # Single-broker KRaft for dev; the K8s round runs 3 brokers via Strimzi
       KAFKA_NODE_ID: 1
@@ -102,7 +103,7 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "8086:8083"                  # host 8083 belongs to transfer-service, 8085 to notification-service
+      - "127.0.0.1:8086:8083"                  # host 8083 belongs to transfer-service, 8085 to notification-service
     environment:
       BOOTSTRAP_SERVERS: kafka:29092
       GROUP_ID: 1
@@ -131,7 +132,7 @@ services:
     container_name: banking-partner-mock
     command: ["--port", "9090", "--global-response-templating", "--no-request-journal"]
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     environment:
       JAVA_OPTS: "-Xmx96m"
     deploy:
@@ -150,7 +151,7 @@ services:
     build: {context: .., args: {MODULE: auth-service}}
     image: banking/auth-service:dev
     container_name: banking-auth
-    ports: ["8081:8081"]
+    ports: ["127.0.0.1:8081:8081"]
     depends_on:
       postgres: {condition: service_healthy}
     environment:
@@ -166,7 +167,7 @@ services:
     build: {context: .., args: {MODULE: ledger-service}}
     image: banking/ledger-service:dev
     container_name: banking-ledger
-    ports: ["8082:8082"]
+    ports: ["127.0.0.1:8082:8082"]
     environment:
       <<: *service-env
       SERVER_PORT: "8082"
@@ -177,7 +178,7 @@ services:
     build: {context: .., args: {MODULE: transfer-service}}
     image: banking/transfer-service:dev
     container_name: banking-transfer
-    ports: ["8083:8083"]
+    ports: ["127.0.0.1:8083:8083"]
     environment:
       <<: *service-env
       SERVER_PORT: "8083"
@@ -193,7 +194,7 @@ services:
     build: {context: .., args: {MODULE: fraud-service}}
     image: banking/fraud-service:dev
     container_name: banking-fraud
-    ports: ["8084:8084"]
+    ports: ["127.0.0.1:8084:8084"]
     environment:
       <<: *service-env
       SERVER_PORT: "8084"
@@ -204,7 +205,7 @@ services:
     build: {context: .., args: {MODULE: notification-service}}
     image: banking/notification-service:dev
     container_name: banking-notification
-    ports: ["8085:8085"]
+    ports: ["127.0.0.1:8085:8085"]
     environment:
       <<: *service-env
       SERVER_PORT: "8085"
@@ -215,7 +216,7 @@ services:
     build: {context: .., args: {MODULE: gateway-service}}
     image: banking/gateway-service:dev
     container_name: banking-gateway
-    ports: ["8080:8080"]
+    ports: ["127.0.0.1:8080:8080"]
     depends_on:
       auth-service: {condition: service_healthy}
       ledger-service: {condition: service_healthy}
@@ -239,7 +240,7 @@ services:
     restart: unless-stopped
     depends_on:
       gateway-service: {condition: service_healthy}
-    ports: ["5173:80"]
+    ports: ["127.0.0.1:5173:80"]
     environment:
       GATEWAY_URL: http://gateway-service:8080
     deploy:
@@ -254,7 +255,7 @@ services:
       kafka:
         condition: service_healthy
     ports:
-      - "8090:8080"
+      - "127.0.0.1:8090:8080"
     environment:
       KAFKA_CLUSTERS_0_NAME: banking-dev
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
