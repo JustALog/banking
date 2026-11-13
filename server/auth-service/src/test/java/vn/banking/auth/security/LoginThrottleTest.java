@@ -62,4 +62,11 @@ class LoginThrottleTest {
         for (int i = 0; i < 1000; i++) attempt("k" + (i % 3));
         assertEquals(3, throttle.size());
     }
+
+    @Test
+    void customLimitAppliesPerKey() {
+        for (int i = 0; i < 50; i++) assertTrue(throttle.tryAcquire("ip:203.0.113.7", 50));
+        assertFalse(throttle.tryAcquire("ip:203.0.113.7", 50));
+        assertTrue(throttle.tryAcquire("ip:198.51.100.1", 50));
+    }
 }
