@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import vn.banking.auth.customer.Customer;
 import vn.banking.auth.customer.CustomerService;
@@ -50,7 +51,10 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public LoginResponse login(@Valid @RequestBody LoginRequest request) {
+    public LoginResponse login(@Valid @RequestBody LoginRequest request, HttpServletRequest http) {
+        if (!throttle.tryAcquire("ip:" + http.getRemoteAddr(), LoginThrottle.MAX_ATTEMPTS_PER_IP)) {
+            throw new TooManyAttemptsException();
+        }
         String key = request.email().trim().toLowerCase(Locale.ROOT);
         if (!throttle.tryAcquire(key)) {
             throw new TooManyAttemptsException();
