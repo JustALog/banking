@@ -1,5 +1,7 @@
 server:
   port: 8081
+  # shortcut: clients on private ranges (LAN demo) are trusted as proxies and could spoof X-Forwarded-For; fine behind ingress-nginx, which overwrites the header.
+  forward-headers-strategy: native
 
 spring:
   data:

@@ -11,11 +11,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.stereotype.Component;
 
 // shortcut: per-replica in-memory counter, move to Redis/gateway RequestRateLimiter when auth runs >1 replica.
-// Per-email key lets a third party lock a victim out for 15 min.
+// Per-email key stops guessing on one account (and lets a third party lock a victim out for 15 min);
+// per-IP key ("ip:" prefix) stops one password sprayed across many accounts.
 @Component
 public class LoginThrottle {
 
     static final int MAX_ATTEMPTS = 5;
+    public static final int MAX_ATTEMPTS_PER_IP = 50;
     static final Duration WINDOW = Duration.ofMinutes(15);
     private static final int SWEEP_EVERY = 1000;
 
@@ -27,15 +29,19 @@ public class LoginThrottle {
         this.clock = clock;
     }
 
-    /** Records an attempt before the password is checked; false when the window already holds 5. */
+    /** Records an attempt before the password is checked; false when the window already holds the limit. */
     public boolean tryAcquire(String email) {
+        return tryAcquire(email, MAX_ATTEMPTS);
+    }
+
+    public boolean tryAcquire(String key, int maxAttempts) {
         if (calls.incrementAndGet() % SWEEP_EVERY == 0) sweep();
         boolean[] allowed = {false};
-        attempts.compute(email, (k, d) -> {
+        attempts.compute(key, (k, d) -> {
             Instant now = clock.instant();
             if (d == null) d = new ArrayDeque<>();
             while (!d.isEmpty() && !d.peekFirst().isAfter(now.minus(WINDOW))) d.removeFirst();
-            if (d.size() < MAX_ATTEMPTS) {
+            if (d.size() < maxAttempts) {
                 d.addLast(now);
                 allowed[0] = true;
             }
@@ -44,8 +50,8 @@ public class LoginThrottle {
         return allowed[0];
     }
 
-    public void reset(String email) {
-        attempts.remove(email);
+    public void reset(String key) {
+        attempts.remove(key);
     }
 
     int size() {
