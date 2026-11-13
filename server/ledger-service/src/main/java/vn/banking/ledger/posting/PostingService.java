@@ -150,9 +150,14 @@ public class PostingService {
 
         // Reversal: refund source, debit back from dest
         source.credit(amount);
-        dest.debit(amount);
+        dest.reverseCredit(amount);
         entries.save(new LedgerEntry(event.transferId(), source.getId(), LedgerEntry.Direction.CREDIT, amount));
         entries.save(new LedgerEntry(event.transferId(), dest.getId(), LedgerEntry.Direction.DEBIT, amount));
+        if (dest.getBalance() < 0) {
+            // shortcut: negative balance is only logged, add a collections/hold flow when real money moves.
+            log.warn("Reversal of transfer {} left account {} at balance {}",
+                    event.transferId(), dest.getId(), dest.getBalance());
+        }
 
         log.info("Compensated transfer {}: refunded {} to source {}, debited {} from dest {}",
                 event.transferId(), amount, source.getId(), amount, dest.getId());

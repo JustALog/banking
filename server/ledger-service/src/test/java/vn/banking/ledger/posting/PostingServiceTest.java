@@ -200,6 +200,23 @@ class PostingServiceTest {
         verify(entryRepository, never()).save(any());
     }
 
+    @Test
+    void transferFailedRefundsSourceEvenWhenDestAlreadySpentTheMoney() {
+        Account source = accountWith(sourceId, 800_000);
+        Account dest = accountWith(destId, 0); // receiver already moved the 200_000 away
+        when(entryRepository.findByTransferId(transferId)).thenReturn(List.of(
+                new LedgerEntry(transferId, sourceId, LedgerEntry.Direction.DEBIT, 200_000),
+                new LedgerEntry(transferId, destId, LedgerEntry.Direction.CREDIT, 200_000)));
+        when(accountRepository.findByIdForUpdate(any())).thenAnswer(inv ->
+                Optional.of(inv.getArgument(0).equals(sourceId) ? source : dest));
+
+        service.onTransferFailed(new TransferFailedEvent(transferId, "PARTNER_TIMEOUT", Instant.now()));
+
+        assertThat(source.getBalance()).isEqualTo(1_000_000);
+        assertThat(dest.getBalance()).isEqualTo(-200_000);
+        verify(entryRepository, org.mockito.Mockito.times(2)).save(any());
+    }
+
     private FraudDecidedEvent event(FraudDecision decision, long amount) {
         return new FraudDecidedEvent(transferId, sourceId, destId, amount, "VND",
                 decision, decision == FraudDecision.APPROVED ? "ok" : "amount too high", Instant.now());
