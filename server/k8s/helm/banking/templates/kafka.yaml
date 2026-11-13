@@ -33,6 +33,13 @@ spec:
         port: 9092
         type: internal
         tls: false
+        networkPolicyPeers:
+          {{- range $name, $app := .Values.apps }}
+          {{- if $app.kafka }}
+          - podSelector: {matchLabels: {app.kubernetes.io/name: {{ $name }}}}
+          {{- end }}
+          {{- end }}
+          - podSelector: {matchLabels: {app.kubernetes.io/name: debezium-connect}}
     config:
       offsets.topic.replication.factor: {{ $rf }}
       transaction.state.log.replication.factor: {{ $rf }}

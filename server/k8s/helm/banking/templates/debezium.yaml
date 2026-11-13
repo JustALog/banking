@@ -157,3 +157,19 @@ spec:
       volumes:
         - name: config
           configMap: {name: debezium-connector}
+---
+# Connect REST has no auth: only the init job may PUT connectors.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: debezium-connect
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: debezium-connect}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: debezium-connector-init}
+      ports:
+        - {port: 8083}
