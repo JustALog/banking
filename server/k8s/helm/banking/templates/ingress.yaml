@@ -10,9 +10,11 @@ spec:
       {{- end }}
       http:
         paths:
-          - path: /
+          {{- range $p := list "auth" "accounts" "transfers" "notifications" }}
+          - path: /{{ $p }}
             pathType: Prefix
             backend:
               service:
                 name: gateway-service
-                port: {number: {{ index .Values.apps "gateway-service" "port" }}}
+                port: {number: {{ index $.Values.apps "gateway-service" "port" }}}
+          {{- end }}
