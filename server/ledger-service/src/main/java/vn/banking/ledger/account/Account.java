@@ -72,6 +72,14 @@ public class Account {
         balance += amount;
     }
 
+    /** Reverses a prior credit. Skips the balance check so a receiver who already spent the money can still be reversed. */
+    public void reverseCredit(long amount) {
+        if (amount <= 0) {
+            throw new IllegalArgumentException("Reversal amount must be positive");
+        }
+        balance -= amount;
+    }
+
     public UUID getId() {
         return id;
     }
